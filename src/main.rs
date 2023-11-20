@@ -1,11 +1,10 @@
 mod config;
+mod tasks;
 
 use axum::{
-    extract::State,
+
     routing::get,
-    http::StatusCode,
-    response::{Html, IntoResponse},
-    Json, Router,
+    Router,
 };
 use std::net::SocketAddr;
 
@@ -18,8 +17,8 @@ async fn main() {
     let data = config::load_config("./config.toml");
 
     let app = Router::new()
-        .route("/", get(help))
-        .route("/api/v1/discover", get(category_listing))
+        .route("/", get(tasks::help))
+        .route("/api/v1/discover", get(tasks::category_listing))
         .with_state(data.clone());
 
     // run our app with hyper
@@ -30,14 +29,4 @@ async fn main() {
         .serve(app.into_make_service())
         .await
         .unwrap();
-}
-
-async fn help() -> Html<&'static str> {
-    Html("Please visit <a href='https://github.com/dalmura/stignore-agent'>the documentation</a> for further information")
-}
-
-async fn category_listing(
-    State(data): State<config::Data>,
-) ->  impl IntoResponse {
-    (StatusCode::IM_A_TEAPOT, Json(data))
 }
