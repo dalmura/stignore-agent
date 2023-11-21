@@ -1,7 +1,6 @@
 use serde::{Serialize,Deserialize};
 use std::fs;
 use std::process::exit;
-use toml;
 
 #[derive(Serialize,Deserialize,Clone)]
 pub struct Data {
