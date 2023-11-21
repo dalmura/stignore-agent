@@ -1,29 +1,29 @@
-use serde::{Serialize,Deserialize};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::process::exit;
-use toml;
 
-#[derive(Serialize,Deserialize,Clone)]
+// Parent struct holding the entire config file
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Data {
     pub(crate) agent: AgentConfig,
     category: toml::Table,
 }
 
 // Config struct holds to data from the `[config]` section.
-#[derive(Serialize,Deserialize,Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct AgentConfig {
     pub name: String,
     pub port: u16,
     pub base_path: String,
 }
 
-#[derive(Serialize,Deserialize,Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Categories {
     pub name: String,
     pub config: CategoryConfig,
 }
 
-#[derive(Serialize,Deserialize,Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct CategoryConfig {
     pub relative_path: String,
 }
@@ -55,11 +55,5 @@ mod tests {
     fn placeholder() {
         let result = 2 + 2;
         assert_eq!(result, 4);
-    }
-
-    #[test]
-    fn placeholder2() {
-        let result = 4 + 2;
-        assert_eq!(result, 6);
     }
 }
