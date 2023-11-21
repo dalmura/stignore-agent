@@ -56,10 +56,4 @@ mod tests {
         let result = 2 + 2;
         assert_eq!(result, 4);
     }
-
-    #[test]
-    fn placeholder2() {
-        let result = 4 + 2;
-        assert_eq!(result, 6);
-    }
 }
