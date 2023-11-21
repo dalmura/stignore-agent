@@ -29,7 +29,6 @@ pub struct CategoryConfig {
 }
 
 pub fn load_config(filename: &str) -> Data {
-
     let contents = match fs::read_to_string(filename) {
         Ok(c) => c,
         Err(_) => {
@@ -48,4 +47,19 @@ pub fn load_config(filename: &str) -> Data {
     };
 
     data
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn placeholder() {
+        let result = 2 + 2;
+        assert_eq!(result, 4);
+    }
+
+    #[test]
+    fn placeholder2() {
+        let result = 4 + 2;
+        assert_eq!(result, 6);
+    }
 }
