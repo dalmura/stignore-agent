@@ -17,7 +17,6 @@ async fn main() {
         .route("/api/v1/discover", get(tasks::category_listing))
         .with_state(data.clone());
 
-    // run our app with hyper
     // `axum::Server` is a re-export of `hyper::Server`
     let addr = SocketAddr::from(([127, 0, 0, 1], data.agent.port));
     tracing::debug!("listening on {}", addr);
