@@ -1,11 +1,7 @@
 mod config;
 mod tasks;
 
-use axum::{
-
-    routing::get,
-    Router,
-};
+use axum::{routing::get, Router};
 use std::net::SocketAddr;
 
 #[tokio::main]
