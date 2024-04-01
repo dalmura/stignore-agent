@@ -2,25 +2,27 @@ mod config;
 mod tasks;
 
 use axum::{routing::get, Router};
-use std::net::SocketAddr;
+use tracing_subscriber::fmt;
 
 #[tokio::main]
 async fn main() {
-    // initialize tracing
-    tracing_subscriber::fmt::init();
+    /* initialize tracing */
+    fmt::init();
 
-    // load config
+    /* load config */
     let data = config::load_config("./config.toml");
 
+    /* configure application routes */
     let app = Router::new()
         .route("/", get(tasks::help))
         .route("/api/v1/discover", get(tasks::category_listing))
         .with_state(data.clone());
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], data.agent.port));
-    tracing::debug!("listening on {}", addr);
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
+    /* bind to the port and listen */
+    let addr = format!("127.0.0.1:{}", data.agent.port);
+    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    tracing::debug!("listening on {}", &addr);
+    axum::serve(listener, app.into_make_service())
         .await
         .unwrap();
 }
