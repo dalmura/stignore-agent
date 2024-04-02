@@ -48,7 +48,7 @@ pub async fn category_info(
                 StatusCode::OK,
                 Json(CategoryInfoResponse {
                     name: category.name.clone(),
-                    items: filesystem::get_category_items(category_path, category.id.clone()),
+                    items: filesystem::get_category_items(category_path),
                 }),
             )
                 .into_response()
@@ -56,7 +56,7 @@ pub async fn category_info(
         None => (
             StatusCode::NOT_FOUND,
             Json(CategoryInfoNotFoundResponse {
-                message: "Category ID not found".to_string(),
+                message: !fmt("Category ID {} not found", category_id),
             }),
         )
             .into_response(),
