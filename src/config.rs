@@ -18,6 +18,7 @@ pub struct AgentConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Category {
+    pub id: String,
     pub name: String,
     pub relative_path: String,
 }

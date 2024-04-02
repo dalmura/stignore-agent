@@ -1,12 +1,9 @@
 [agent]
 port = 3000
 name = "Agent Smith"
-base_path = "/path/to/stuff"
+base_path = "C:\\media"
 
 [[categories]]
-name = "Category A"
-relative_path = "a/"
-
-[[categories]]
-name = "Category B"
-relative_path = "tv"
+id = "movies"
+name = "Movies"
+relative_path = "movies\\"

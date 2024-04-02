@@ -1,4 +1,5 @@
 mod config;
+mod filesystem;
 mod tasks;
 
 use axum::{routing::get, Router};
@@ -15,7 +16,8 @@ async fn main() {
     /* configure application routes */
     let app = Router::new()
         .route("/", get(tasks::help))
-        .route("/api/v1/discover", get(tasks::category_listing))
+        .route("/api/v1/categories", get(tasks::category_listing))
+        .route("/api/v1/categories/:id", get(tasks::category_info))
         .with_state(data.clone());
 
     /* bind to the port and listen */
