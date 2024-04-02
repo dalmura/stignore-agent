@@ -58,6 +58,7 @@ mod tests {
            base_path = "/path/to/stuff"
         
            [[categories]]
+           id = "category_a"
            name = "Category A"
            relative_path = "a/"
         "#,
