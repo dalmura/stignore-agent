@@ -12,7 +12,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: SebRollen/toml-action@v1.0.2
+      - uses: SebRollen/toml-action@v1.2.0
         id: version
         with:
           file: 'Cargo.toml'
@@ -26,7 +26,7 @@ jobs:
       # aka a new release
       - id: create_release
         if: ${{ success() }}
-        uses: softprops/action-gh-release@v0.1.15
+        uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: v${{ steps.version.outputs.value }}
