@@ -56,7 +56,7 @@ pub async fn category_info(
         None => (
             StatusCode::NOT_FOUND,
             Json(CategoryInfoNotFoundResponse {
-                message: !fmt("Category ID {} not found", category_id),
+                message: format!("Category ID {} not found", category_id),
             }),
         )
             .into_response(),
