@@ -19,13 +19,12 @@ pub async fn category_list(State(data): State<config::Data>) -> impl IntoRespons
         .iter()
         .map(|c| {
             let category_path = filesystem::build_path(&data.agent.base_path, &c.relative_path);
-            let children = filesystem::build_items(category_path);
+            let children = filesystem::build_items(category_path, false);
 
             filesystem::ItemGroup {
                 id: c.id.clone(),
                 name: c.name.clone(),
                 size_kb: children.iter().map(|c| c.size_kb).sum(),
-                count: children.len() as u32,
                 items: children,
             }
         })
@@ -48,7 +47,7 @@ pub async fn category_info(
                 StatusCode::OK,
                 Json(CategoryInfoResponse {
                     name: category.name.clone(),
-                    items: filesystem::build_items(category_path),
+                    items: filesystem::build_items(category_path, false),
                 }),
             )
                 .into_response()
