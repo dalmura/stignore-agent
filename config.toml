@@ -7,3 +7,8 @@ base_path = "C:\\media"
 id = "movies"
 name = "Movies"
 relative_path = "movies\\"
+
+[[categories]]
+id = "tv"
+name = "TV Shows"
+relative_path = "tv\\"
