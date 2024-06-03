@@ -14,7 +14,7 @@ pub async fn help() -> Html<&'static str> {
 
 // GET categories
 pub async fn category_list(State(data): State<config::Data>) -> impl IntoResponse {
-    let categories = data
+    let items = data
         .categories
         .iter()
         .map(|c| {
@@ -30,7 +30,7 @@ pub async fn category_list(State(data): State<config::Data>) -> impl IntoRespons
         })
         .collect();
 
-    (StatusCode::OK, Json(CategoryListingResponse { categories }))
+    (StatusCode::OK, Json(CategoryListingResponse { items }))
 }
 
 // GET category info

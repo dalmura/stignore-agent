@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct CategoryListingResponse {
-    pub categories: Vec<filesystem::ItemGroup>,
+    pub items: Vec<filesystem::ItemGroup>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
