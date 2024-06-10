@@ -7,24 +7,22 @@ use axum::{
     response::{Html, IntoResponse, Response},
     Json,
 };
-use sha2::{Digest, Sha512};
 
 pub async fn help() -> Html<&'static str> {
     Html("Please visit <a href='https://github.com/dalmura/stignore-agent'>the documentation</a> for further information")
 }
 
 // GET categories
+// Returns all configured categories that the agent is configured for!
 pub async fn category_list(State(data): State<config::Data>) -> impl IntoResponse {
     let items = data
         .categories
         .iter()
         .map(|c| {
-            let mut hasher = Sha512::new();
-            hasher.update(&c.id);
-            let parent_id = format!("{:x}", hasher.finalize());
+            let parent_id = filesystem::generate_id(&c.id, None);
 
             let category_path = filesystem::build_path(&data.agent.base_path, &c.relative_path);
-            let children = filesystem::build_items(category_path, parent_id.clone(), false);
+            let children = filesystem::build_items(&category_path, Some(&parent_id), false);
 
             filesystem::ItemGroup {
                 id: parent_id,
@@ -40,32 +38,51 @@ pub async fn category_list(State(data): State<config::Data>) -> impl IntoRespons
 }
 
 // GET category info
+// Returns specific info for a given category
 pub async fn category_info(
     State(data): State<config::Data>,
     Path(category_id): Path<String>,
 ) -> Response {
     match data.categories.iter().find(|x| x.id == category_id) {
         Some(category) => {
-            let mut hasher = Sha512::new();
-            hasher.update(&category.id);
-            let parent_id = format!("{:x}", hasher.finalize());
-
             let category_path =
                 filesystem::build_path(&data.agent.base_path, &category.relative_path);
+
+            let parent_id = filesystem::generate_id(&category.id, None);
 
             (
                 StatusCode::OK,
                 Json(CategoryInfoResponse {
                     name: category.name.clone(),
-                    items: filesystem::build_items(category_path, parent_id, false),
+                    items: filesystem::build_items(&category_path, Some(&parent_id), false),
                 }),
             )
                 .into_response()
         }
         None => (
             StatusCode::NOT_FOUND,
-            Json(CategoryInfoNotFoundResponse {
+            Json(NotFoundResponse {
                 message: format!("Category ID {} not found", category_id),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+// GET itemgroup info
+// Returns specific into for a given itemgroup
+// We must be given a series of correct itemgroup IDs to traverse
+pub async fn item_info(State(data): State<config::Data>, Path(path): Path<String>) -> Response {
+    let start = std::path::Path::new(&data.agent.base_path);
+    let item_path: Vec<&str> = path.split('/').collect();
+    tracing::info!("Finding {:?}", &item_path);
+
+    match filesystem::get_item(start, &item_path) {
+        Some(item) => (StatusCode::OK, Json(ItemInfoResponse { item })).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(NotFoundResponse {
+                message: format!("Item Path '{:?}' not found", &item_path),
             }),
         )
             .into_response(),
