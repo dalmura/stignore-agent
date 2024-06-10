@@ -65,16 +65,14 @@ fn file_to_item(entry: fs::DirEntry, parent_id: Option<&str>) -> ItemGroup {
 }
 
 pub fn build_items(item_path: &Path, parent_id: Option<&str>, leaf: bool) -> Vec<ItemGroup> {
-    tracing::info!("build_items with {:?}", item_path);
+    tracing::info!("build_items with {:?} (leaf: {})", item_path, leaf);
     match fs::read_dir(item_path) {
         Err(why) => {
             println!("ERROR: Unable to list path: {:?}", why.kind());
             vec![]
         }
         Ok(paths) => match leaf {
-            true => paths
-                .map(|i| file_to_item(i.unwrap(), parent_id))
-                .collect(),
+            true => paths.map(|i| file_to_item(i.unwrap(), parent_id)).collect(),
             false => paths
                 .filter(|i| i.as_ref().unwrap().file_type().unwrap().is_dir())
                 .map(|i| dir_to_item(i.unwrap(), parent_id))
@@ -85,16 +83,19 @@ pub fn build_items(item_path: &Path, parent_id: Option<&str>, leaf: bool) -> Vec
 
 pub fn get_item(start: &Path, path: &[&str]) -> Option<ItemGroup> {
     if path.is_empty() {
-        return None
+        return None;
     }
-    
+
     let item_id = path[0];
     tracing::info!("picked first item_id {}", &item_id);
 
     let children = build_items(start, Some(item_id), false);
     tracing::info!("found {} children", &children.len());
 
-    let found = children.iter().find(|child| child.id == item_id).map(|c| c.to_owned());
+    let found = children
+        .iter()
+        .find(|child| child.id == item_id)
+        .map(|c| c.to_owned());
 
     if found.is_some() {
         tracing::info!("Found has Some");
@@ -108,8 +109,8 @@ pub fn get_item(start: &Path, path: &[&str]) -> Option<ItemGroup> {
             Some(child) => {
                 let start_here = start.join(child.name);
                 get_item(start_here.as_path(), &path[1..])
-            },
+            }
             None => None,
-        }
+        },
     }
 }
