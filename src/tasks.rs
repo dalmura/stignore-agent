@@ -1,6 +1,6 @@
 use crate::config;
 use crate::filesystem;
-use crate::responses::*;
+use crate::models::*;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -70,14 +70,37 @@ pub async fn category_info(
 }
 
 // GET itemgroup info
-// Returns specific into for a given itemgroup
+// Returns specific info for a given itemgroup
 // We must be given a series of correct itemgroup IDs to traverse
-pub async fn item_info(State(data): State<config::Data>, Path(path): Path<String>) -> Response {
+pub async fn get_item_info(State(data): State<config::Data>, Path(path): Path<String>) -> Response {
     let start = std::path::Path::new(&data.agent.base_path);
     let item_path: Vec<&str> = path.split('/').collect();
     tracing::info!("Finding {:?}", &item_path);
 
     match filesystem::get_item(start, &item_path) {
+        Some(item) => (StatusCode::OK, Json(ItemInfoResponse { item })).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(NotFoundResponse {
+                message: format!("Item Path '{:?}' not found", &item_path),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+// POST itemgroup info
+// Returns specific info for a given itemgroup
+// We must be given a series of correct itemgroup IDs to traverse
+pub async fn post_item_info(
+    State(data): State<config::Data>,
+    Json(payload): Json<ItemInfoRequest>,
+) -> Response {
+    let start = std::path::Path::new(&data.agent.base_path);
+    let item_path: Vec<&str> = payload.item_path.iter().map(AsRef::as_ref).collect();
+    tracing::info!("Finding {:?}", &item_path);
+
+    match filesystem::get_item(start, item_path.as_slice()) {
         Some(item) => (StatusCode::OK, Json(ItemInfoResponse { item })).into_response(),
         None => (
             StatusCode::NOT_FOUND,
