@@ -2,11 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::process::exit;
 
-// Parent struct holding the entire config file
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Data {
-    pub(crate) agent: AgentConfig,
-    pub(crate) categories: Vec<Category>,
+pub struct Category {
+    pub id: String,
+    pub name: String,
+    pub relative_path: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -16,11 +16,11 @@ pub struct AgentConfig {
     pub base_path: String,
 }
 
+// Parent struct holding the entire config file
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Category {
-    pub id: String,
-    pub name: String,
-    pub relative_path: String,
+pub struct Data {
+    pub(crate) agent: AgentConfig,
+    pub(crate) categories: Vec<Category>,
 }
 
 pub fn load_config(filename: &str) -> Data {
