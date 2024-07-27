@@ -77,7 +77,7 @@ pub async fn get_item_info(State(data): State<config::Data>, Path(path): Path<St
     let item_path: Vec<&str> = path.split('/').collect();
     tracing::info!("Finding {:?}", &item_path);
 
-    match filesystem::get_item(start, &item_path) {
+    match filesystem::get_item(start, &item_path, None) {
         Some(item) => (StatusCode::OK, Json(ItemInfoResponse { item })).into_response(),
         None => (
             StatusCode::NOT_FOUND,
@@ -98,9 +98,12 @@ pub async fn post_item_info(
 ) -> Response {
     let start = std::path::Path::new(&data.agent.base_path);
     let item_path: Vec<&str> = payload.item_path.iter().map(AsRef::as_ref).collect();
-    tracing::info!("Finding {:?}", &item_path);
 
-    match filesystem::get_item(start, item_path.as_slice()) {
+    for item in &item_path {
+        tracing::debug!("Finding {}", *item);
+    }
+
+    match filesystem::get_item(start, item_path.as_slice(), None) {
         Some(item) => (StatusCode::OK, Json(ItemInfoResponse { item })).into_response(),
         None => (
             StatusCode::NOT_FOUND,

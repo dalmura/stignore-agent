@@ -81,31 +81,35 @@ pub fn build_items(item_path: &Path, parent_id: Option<&str>, leaf: bool) -> Vec
     }
 }
 
-pub fn get_item(start: &Path, path: &[&str]) -> Option<ItemGroup> {
+pub fn get_item(start: &Path, path: &[&str], parent_id: Option<&str>) -> Option<ItemGroup> {
     if path.is_empty() {
-        tracing::info!("Path is empty, nothing to do here?");
+        tracing::debug!("Path is empty, nothing to do here?");
         return None;
     }
 
+    tracing::debug!("entered get_item");
+    tracing::debug!("start: {:?}", start);
+    tracing::debug!("parent_id: {:?}", parent_id);
+
     let item_id = path[0];
-    tracing::info!("picked first item_id {}", &item_id);
+    tracing::debug!("picked first item_id {}", item_id);
 
-    let children = build_items(start, None, false);
-    tracing::info!("found {} children", &children.len());
+    let children = build_items(start, parent_id, false);
+    tracing::debug!("found {} children", &children.len());
 
-    tracing::info!("Looking for child id {}", &item_id);
+    tracing::debug!("Looking for child id {}", item_id);
     let found = children
         .iter()
         .find(|child| {
-            tracing::info!("comparing against child {:?}", &child.id);
+            tracing::debug!("comparing against child {}", &child.id);
             child.id == item_id
         })
         .map(|c| c.to_owned());
 
     if found.is_some() {
-        tracing::info!("Found has Some");
+        tracing::debug!("Found a matching child");
     } else {
-        tracing::info!("Didn't find any matching children");
+        tracing::debug!("Didn't find any matching children");
     }
 
     match path.len() {
@@ -113,7 +117,8 @@ pub fn get_item(start: &Path, path: &[&str]) -> Option<ItemGroup> {
         _ => match found {
             Some(child) => {
                 let start_here = start.join(child.name);
-                get_item(start_here.as_path(), &path[1..])
+                tracing::debug!("entering get_item recursively");
+                get_item(start_here.as_path(), &path[1..], Some(item_id))
             }
             None => None,
         },
