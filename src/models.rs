@@ -13,6 +13,21 @@ pub(crate) struct CategoryInfoResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub(crate) struct CategoryInfoNotFoundResponse {
+pub(crate) struct ItemInfoRequest {
+    pub item_path: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct ItemInfoResponse {
+    pub item: filesystem::ItemGroup,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct NotFoundResponse {
     pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct DebugPathResponse {
+    pub path: String,
 }

@@ -8,6 +8,18 @@ pub fn build_path(base_path: &String, next_item: &String) -> PathBuf {
     Path::new(base_path).join(next_item)
 }
 
+pub fn generate_id(name: &str, parent_id: Option<&str>) -> String {
+    let mut hasher = Sha512::new();
+
+    if let Some(id) = parent_id {
+        hasher.update(id);
+    }
+
+    hasher.update(name);
+
+    format!("{:x}", hasher.finalize())
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct ItemGroup {
     pub id: String,
@@ -17,20 +29,17 @@ pub(crate) struct ItemGroup {
     pub leaf: bool,
 }
 
-fn dir_to_item(entry: fs::DirEntry, parent_id: String) -> ItemGroup {
+fn dir_to_item(entry: fs::DirEntry, parent_id: Option<&str>) -> ItemGroup {
     let filename = entry.file_name().into_string().unwrap();
+    let entry_path = entry.path();
 
-    let mut hasher = Sha512::new();
-    hasher.update(&parent_id);
-    hasher.update(&filename);
+    let item_id = generate_id(&filename, parent_id);
 
-    let item_id = format!("{:x}", hasher.finalize());
-
-    let mut children = build_items(entry.path(), item_id.clone(), false);
+    let mut children = build_items(&entry_path, Some(&item_id), false);
     let mut leaf = false;
 
     if children.is_empty() {
-        children = build_items(entry.path(), item_id.clone(), true);
+        children = build_items(&entry_path, Some(&item_id), true);
         leaf = true;
     }
 
@@ -43,15 +52,11 @@ fn dir_to_item(entry: fs::DirEntry, parent_id: String) -> ItemGroup {
     }
 }
 
-fn file_to_item(entry: fs::DirEntry, parent_id: String) -> ItemGroup {
+fn file_to_item(entry: fs::DirEntry, parent_id: Option<&str>) -> ItemGroup {
     let filename = entry.file_name().into_string().unwrap();
 
-    let mut hasher = Sha512::new();
-    hasher.update(&parent_id);
-    hasher.update(&filename);
-
     ItemGroup {
-        id: format!("{:x}", hasher.finalize()),
+        id: generate_id(&filename, parent_id),
         name: filename,
         size_kb: entry.metadata().unwrap().len(),
         items: vec![],
@@ -59,20 +64,63 @@ fn file_to_item(entry: fs::DirEntry, parent_id: String) -> ItemGroup {
     }
 }
 
-pub fn build_items(item_path: PathBuf, parent_id: String, leaf: bool) -> Vec<ItemGroup> {
+pub fn build_items(item_path: &Path, parent_id: Option<&str>, leaf: bool) -> Vec<ItemGroup> {
+    tracing::info!("build_items with {:?} (leaf: {})", item_path, leaf);
     match fs::read_dir(item_path) {
+        Ok(paths) => match leaf {
+            true => paths.map(|i| file_to_item(i.unwrap(), parent_id)).collect(),
+            false => paths
+                .filter(|i| i.as_ref().unwrap().file_type().unwrap().is_dir())
+                .map(|i| dir_to_item(i.unwrap(), parent_id))
+                .collect(),
+        },
         Err(why) => {
             println!("ERROR: Unable to list path: {:?}", why.kind());
             vec![]
         }
-        Ok(paths) => match leaf {
-            true => paths
-                .map(|i| file_to_item(i.unwrap(), parent_id.clone()))
-                .collect(),
-            false => paths
-                .filter(|i| i.as_ref().unwrap().file_type().unwrap().is_dir())
-                .map(|i| dir_to_item(i.unwrap(), parent_id.clone()))
-                .collect(),
+    }
+}
+
+pub fn get_item(start: &Path, path: &[&str], parent_id: Option<&str>) -> Option<ItemGroup> {
+    if path.is_empty() {
+        tracing::debug!("Path is empty, nothing to do here?");
+        return None;
+    }
+
+    tracing::debug!("entered get_item");
+    tracing::debug!("start: {:?}", start);
+    tracing::debug!("parent_id: {:?}", parent_id);
+
+    let item_id = path[0];
+    tracing::debug!("picked first item_id {}", item_id);
+
+    let children = build_items(start, parent_id, false);
+    tracing::debug!("found {} children", &children.len());
+
+    tracing::debug!("Looking for child id {}", item_id);
+    let found = children
+        .iter()
+        .find(|child| {
+            tracing::debug!("comparing against child {}", &child.id);
+            child.id == item_id
+        })
+        .map(|c| c.to_owned());
+
+    if found.is_some() {
+        tracing::debug!("Found a matching child");
+    } else {
+        tracing::debug!("Didn't find any matching children");
+    }
+
+    match path.len() {
+        1 => found,
+        _ => match found {
+            Some(child) => {
+                let start_here = start.join(child.name);
+                tracing::debug!("entering get_item recursively");
+                get_item(start_here.as_path(), &path[1..], Some(item_id))
+            }
+            None => None,
         },
     }
 }
