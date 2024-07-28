@@ -26,8 +26,3 @@ pub(crate) struct ItemInfoResponse {
 pub(crate) struct NotFoundResponse {
     pub message: String,
 }
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub(crate) struct DebugPathResponse {
-    pub path: String,
-}

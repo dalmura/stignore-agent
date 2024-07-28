@@ -6,13 +6,18 @@ mod tasks;
 use axum::{routing::get, routing::post, Router};
 use tracing_subscriber::fmt;
 
+use std::env;
+
 #[tokio::main]
 async fn main() {
     /* initialize tracing */
     fmt::init();
 
     /* load config */
-    let data = config::load_config("./config.toml");
+    let args: Vec<String> = env::args().collect();
+    let config_filename = &args[1];
+
+    let data = config::load_config(config_filename);
 
     /* configure application routes */
     let app = Router::new()
