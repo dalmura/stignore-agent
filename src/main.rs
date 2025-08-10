@@ -23,8 +23,8 @@ async fn main() {
     let app = Router::new()
         .route("/", get(tasks::help))
         .route("/api/v1/categories", get(tasks::category_list))
-        .route("/api/v1/categories/:id", get(tasks::category_info))
-        .route("/api/v1/items/*path", get(tasks::get_item_info))
+        .route("/api/v1/categories/{id}", get(tasks::category_info))
+        .route("/api/v1/items/{*path}", get(tasks::get_item_info))
         .route("/api/v1/items", post(tasks::post_item_info))
         .with_state(data.clone());
 
