@@ -58,7 +58,7 @@ fn file_to_item(entry: fs::DirEntry, parent_id: Option<&str>) -> ItemGroup {
     ItemGroup {
         id: generate_id(&filename, parent_id),
         name: filename,
-        size_kb: entry.metadata().unwrap().len(),
+        size_kb: entry.metadata().unwrap().len() / 1024,
         items: vec![],
         leaf: false,
     }
