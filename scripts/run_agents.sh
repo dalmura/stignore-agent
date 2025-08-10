@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-cargo run config-agent1.toml &
+RUST_LOG=error cargo run config-agent1.toml &
 AGENT1=$!
-cargo run config-agent2.toml &
+RUST_LOG=error cargo run config-agent2.toml &
 AGENT2=$!
-cargo run config-agent3.toml &
+RUST_LOG=debug cargo run config-agent3.toml &
 AGENT3=$!
 
 kill_agents() {
