@@ -181,3 +181,85 @@ pub fn resolve_item_filesystem_path(
         None => None,
     }
 }
+
+/// Result of adding a path to .stignore file
+#[derive(Debug, Clone)]
+pub enum StignoreResult {
+    Success {
+        ignored_path: String,
+        message: String,
+    },
+    AlreadyIgnored {
+        ignored_path: String,
+    },
+    Error {
+        message: String,
+    },
+}
+
+/// Adds a filesystem path to the .stignore file in the specified category directory.
+///
+/// This function handles all .stignore file operations including:
+/// - Reading existing .stignore content
+/// - Checking if the path is already ignored
+/// - Adding new paths to ignore
+/// - Writing back to the file
+///
+/// # Parameters
+/// * `category_base_path` - The base directory of the category (e.g., "/home/user/media/movies")
+/// * `file_path` - The full filesystem path to the item to ignore
+/// * `category_name` - Name of the category for success messages
+///
+/// # Returns
+/// * `StignoreResult` - Success, already ignored, or error result
+pub fn add_to_stignore(
+    category_base_path: &std::path::Path,
+    file_path: &std::path::Path,
+    category_name: &str,
+) -> StignoreResult {
+    let stignore_path = category_base_path.join(".stignore");
+
+    // Calculate the path relative to the category
+    let category_relative_path = match file_path.strip_prefix(category_base_path) {
+        Ok(rel_path) => rel_path.to_string_lossy().to_string(),
+        Err(_) => {
+            return StignoreResult::Error {
+                message: "Failed to resolve category-relative path".to_string(),
+            };
+        }
+    };
+
+    // Read existing .stignore or create new content
+    let mut ignore_content = std::fs::read_to_string(&stignore_path).unwrap_or_default();
+
+    // Check if the path is already ignored
+    if ignore_content
+        .lines()
+        .any(|line| line.trim() == category_relative_path)
+    {
+        return StignoreResult::AlreadyIgnored {
+            ignored_path: category_relative_path,
+        };
+    }
+
+    // Add the path to ignore content
+    if !ignore_content.is_empty() && !ignore_content.ends_with('\n') {
+        ignore_content.push('\n');
+    }
+    ignore_content.push_str(&category_relative_path);
+    ignore_content.push('\n');
+
+    // Write back to .stignore
+    match std::fs::write(&stignore_path, ignore_content) {
+        Ok(_) => StignoreResult::Success {
+            ignored_path: category_relative_path.clone(),
+            message: format!(
+                "Successfully added '{}' to .stignore in category '{}'",
+                category_relative_path, category_name
+            ),
+        },
+        Err(err) => StignoreResult::Error {
+            message: format!("Failed to write .stignore file: {}", err),
+        },
+    }
+}

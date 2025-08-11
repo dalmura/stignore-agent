@@ -183,76 +183,39 @@ pub async fn post_ignore(
             // Resolve the filesystem path for the item
             match filesystem::resolve_item_filesystem_path(start, item_path.as_slice(), None) {
                 Some(file_path) => {
-                    let stignore_path = start.join(&category.relative_path).join(".stignore");
+                    let category_base_path = start.join(&category.relative_path);
 
-                    // Calculate the path relative to the category
-                    let category_base = start.join(&category.relative_path);
-                    let category_relative_path = match file_path.strip_prefix(&category_base) {
-                        Ok(rel_path) => {
-                            let path_str = rel_path.to_string_lossy().to_string();
-                            tracing::debug!("Category relative path: '{}'", path_str);
-                            path_str
-                        }
-                        Err(_) => {
-                            return (
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                Json(IgnoreResponse {
-                                    success: false,
-                                    message: "Failed to resolve category-relative path".to_string(),
-                                    ignored_path: None,
-                                }),
-                            )
-                                .into_response();
-                        }
-                    };
-
-                    // Read existing .stignore or create new content
-                    let mut ignore_content =
-                        std::fs::read_to_string(&stignore_path).unwrap_or_default();
-
-                    // Check if the path is already ignored
-                    let path_to_ignore = category_relative_path.clone();
-                    if ignore_content
-                        .lines()
-                        .any(|line| line.trim() == path_to_ignore)
-                    {
-                        return (
+                    match filesystem::add_to_stignore(
+                        &category_base_path,
+                        &file_path,
+                        &category.name,
+                    ) {
+                        filesystem::StignoreResult::Success {
+                            ignored_path,
+                            message,
+                        } => (
+                            StatusCode::OK,
+                            Json(IgnoreResponse {
+                                success: true,
+                                message,
+                                ignored_path: Some(ignored_path),
+                            }),
+                        )
+                            .into_response(),
+                        filesystem::StignoreResult::AlreadyIgnored { ignored_path } => (
                             StatusCode::OK,
                             Json(IgnoreResponse {
                                 success: true,
                                 message: "Path is already ignored".to_string(),
-                                ignored_path: Some(path_to_ignore),
-                            }),
-                        )
-                            .into_response();
-                    }
-
-                    // Add the path to ignore content
-                    if !ignore_content.is_empty() && !ignore_content.ends_with('\n') {
-                        ignore_content.push('\n');
-                    }
-                    ignore_content.push_str(&path_to_ignore);
-                    ignore_content.push('\n');
-
-                    // Write back to .stignore
-                    match std::fs::write(&stignore_path, ignore_content) {
-                        Ok(_) => (
-                            StatusCode::OK,
-                            Json(IgnoreResponse {
-                                success: true,
-                                message: format!(
-                                    "Successfully added '{}' to .stignore in category '{}'",
-                                    path_to_ignore, category.name
-                                ),
-                                ignored_path: Some(path_to_ignore),
+                                ignored_path: Some(ignored_path),
                             }),
                         )
                             .into_response(),
-                        Err(err) => (
+                        filesystem::StignoreResult::Error { message } => (
                             StatusCode::INTERNAL_SERVER_ERROR,
                             Json(IgnoreResponse {
                                 success: false,
-                                message: format!("Failed to write .stignore file: {}", err),
+                                message,
                                 ignored_path: None,
                             }),
                         )
