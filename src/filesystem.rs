@@ -124,3 +124,60 @@ pub fn get_item(start: &Path, path: &[&str], parent_id: Option<&str>) -> Option<
         },
     }
 }
+
+/// Resolves an item path (array of IDs) to the actual filesystem path on disk.
+///
+/// This function is similar to `get_item` but returns the concrete filesystem path
+/// instead of an ItemGroup structure. It's used when you need the actual file/directory
+/// path for operations like writing to .stignore files.
+///
+/// # Parameters
+/// * `start` - The starting directory path (typically the base path)
+/// * `path` - Array of item IDs representing the path to traverse (e.g., ["movies_id", "movie_dir_id"])
+/// * `parent_id` - Parent context for ID generation (used for building items at each level)
+///
+/// # Returns
+/// * `Some(PathBuf)` - The resolved filesystem path if all IDs in the path are found
+/// * `None` - If any part of the path cannot be resolved or path is empty
+///
+/// # Example
+/// ```
+/// // Item path: ["movies_id", "movie1_id"]
+/// // Base path: "/home/user/media"
+/// // Returns: Some(PathBuf("/home/user/media/movies/Movie 1 (2023)"))
+/// ```
+pub fn resolve_item_filesystem_path(
+    start: &Path,
+    path: &[&str],
+    parent_id: Option<&str>,
+) -> Option<PathBuf> {
+    // Empty path cannot be resolved
+    if path.is_empty() {
+        return None;
+    }
+
+    // Get the current item ID to find (first in the path)
+    let item_id = path[0];
+
+    // Build items in the current directory to search through
+    let children = build_items(start, parent_id, false);
+
+    // Find the child item that matches our target ID
+    let found = children.iter().find(|child| child.id == item_id);
+
+    match found {
+        Some(child) => {
+            // Construct the filesystem path by joining the child's name to current path
+            let child_path = start.join(&child.name);
+
+            match path.len() {
+                // Base case: if this is the final item in path, return the resolved path
+                1 => Some(child_path),
+                // Recursive case: continue resolving with remaining path segments
+                _ => resolve_item_filesystem_path(&child_path, &path[1..], Some(item_id)),
+            }
+        }
+        // Item ID not found in current directory
+        None => None,
+    }
+}

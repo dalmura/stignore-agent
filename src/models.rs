@@ -26,3 +26,15 @@ pub(crate) struct ItemInfoResponse {
 pub(crate) struct NotFoundResponse {
     pub message: String,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct IgnoreRequest {
+    pub item_path: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct IgnoreResponse {
+    pub success: bool,
+    pub message: String,
+    pub ignored_path: Option<String>,
+}

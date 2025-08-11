@@ -115,6 +115,173 @@ pub async fn post_item_info(
     }
 }
 
+// POST ignore
+// Adds a file path to .stignore in the appropriate category
+pub async fn post_ignore(
+    State(data): State<config::Data>,
+    Json(payload): Json<IgnoreRequest>,
+) -> Response {
+    let start = std::path::Path::new(&data.agent.base_path);
+    let item_path: Vec<&str> = payload.item_path.iter().map(AsRef::as_ref).collect();
+
+    tracing::info!("Processing ignore request for path: {:?}", &item_path);
+
+    // First item in path is always the category hash ID
+    if item_path.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(IgnoreResponse {
+                success: false,
+                message: "Item path cannot be empty".to_string(),
+                ignored_path: None,
+            }),
+        )
+            .into_response();
+    }
+
+    // Path must contain more than just the category - need an actual item to ignore
+    if item_path.len() < 2 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(IgnoreResponse {
+                success: false,
+                message:
+                    "Cannot ignore the category root itself, only children within the category"
+                        .to_string(),
+                ignored_path: None,
+            }),
+        )
+            .into_response();
+    }
+
+    let category_hash_id = &item_path[0];
+
+    // Find the category by matching the generated hash ID
+    let category = data.categories.iter().find(|c| {
+        let generated_id = filesystem::generate_id(&c.id, None);
+        generated_id == *category_hash_id
+    });
+
+    let category = match category {
+        Some(cat) => cat,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(IgnoreResponse {
+                    success: false,
+                    message: format!("Category with hash ID '{}' not found", category_hash_id),
+                    ignored_path: None,
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // Validate the item exists
+    match filesystem::get_item(start, item_path.as_slice(), None) {
+        Some(_item) => {
+            // Resolve the filesystem path for the item
+            match filesystem::resolve_item_filesystem_path(start, item_path.as_slice(), None) {
+                Some(file_path) => {
+                    let stignore_path = start.join(&category.relative_path).join(".stignore");
+
+                    // Calculate the path relative to the category
+                    let category_base = start.join(&category.relative_path);
+                    let category_relative_path = match file_path.strip_prefix(&category_base) {
+                        Ok(rel_path) => {
+                            let path_str = rel_path.to_string_lossy().to_string();
+                            tracing::debug!("Category relative path: '{}'", path_str);
+                            path_str
+                        }
+                        Err(_) => {
+                            return (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(IgnoreResponse {
+                                    success: false,
+                                    message: "Failed to resolve category-relative path".to_string(),
+                                    ignored_path: None,
+                                }),
+                            )
+                                .into_response();
+                        }
+                    };
+
+                    // Read existing .stignore or create new content
+                    let mut ignore_content =
+                        std::fs::read_to_string(&stignore_path).unwrap_or_default();
+
+                    // Check if the path is already ignored
+                    let path_to_ignore = category_relative_path.clone();
+                    if ignore_content
+                        .lines()
+                        .any(|line| line.trim() == path_to_ignore)
+                    {
+                        return (
+                            StatusCode::OK,
+                            Json(IgnoreResponse {
+                                success: true,
+                                message: "Path is already ignored".to_string(),
+                                ignored_path: Some(path_to_ignore),
+                            }),
+                        )
+                            .into_response();
+                    }
+
+                    // Add the path to ignore content
+                    if !ignore_content.is_empty() && !ignore_content.ends_with('\n') {
+                        ignore_content.push('\n');
+                    }
+                    ignore_content.push_str(&path_to_ignore);
+                    ignore_content.push('\n');
+
+                    // Write back to .stignore
+                    match std::fs::write(&stignore_path, ignore_content) {
+                        Ok(_) => (
+                            StatusCode::OK,
+                            Json(IgnoreResponse {
+                                success: true,
+                                message: format!(
+                                    "Successfully added '{}' to .stignore in category '{}'",
+                                    path_to_ignore, category.name
+                                ),
+                                ignored_path: Some(path_to_ignore),
+                            }),
+                        )
+                            .into_response(),
+                        Err(err) => (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(IgnoreResponse {
+                                success: false,
+                                message: format!("Failed to write .stignore file: {}", err),
+                                ignored_path: None,
+                            }),
+                        )
+                            .into_response(),
+                    }
+                }
+                None => (
+                    StatusCode::NOT_FOUND,
+                    Json(IgnoreResponse {
+                        success: false,
+                        message: "Could not resolve filesystem path for item".to_string(),
+                        ignored_path: None,
+                    }),
+                )
+                    .into_response(),
+            }
+        }
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(IgnoreResponse {
+                success: false,
+                message: format!("Item Path '{:?}' not found", &item_path),
+                ignored_path: None,
+            }),
+        )
+            .into_response(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,17 +349,45 @@ mod tests {
 
     fn create_test_files(paths: &TestDirectoryPaths) {
         // Create movie files
-        fs::write(paths.movie1.join("Movie 1 (2023).mkv"), "test movie 1 content").unwrap();
-        fs::write(paths.movie2.join("Movie 2 (2024).mp4"), "test movie 2 content").unwrap();
+        fs::write(
+            paths.movie1.join("Movie 1 (2023).mkv"),
+            "test movie 1 content",
+        )
+        .unwrap();
+        fs::write(
+            paths.movie2.join("Movie 2 (2024).mp4"),
+            "test movie 2 content",
+        )
+        .unwrap();
 
         // Create TV show files
         let tv_episodes = [
-            (&paths.show1_season1, vec!["S01E01 - Ep 1.mkv", "S01E02 - Ep 2.mkv"]),
-            (&paths.show1_season2, vec!["S02E01 - Ep 1.mkv", "S02E02 - Ep 2.mkv", "S02E03 - Ep 3.mkv"]),
+            (
+                &paths.show1_season1,
+                vec!["S01E01 - Ep 1.mkv", "S01E02 - Ep 2.mkv"],
+            ),
+            (
+                &paths.show1_season2,
+                vec![
+                    "S02E01 - Ep 1.mkv",
+                    "S02E02 - Ep 2.mkv",
+                    "S02E03 - Ep 3.mkv",
+                ],
+            ),
             (&paths.show2_season1, vec!["S01E01 - Ep 1.mkv"]),
             (&paths.show3_season1, vec!["S01E01 - Ep 1.mkv"]),
-            (&paths.show3_season2, vec!["S02E01 - Ep 1.mkv", "S02E02 - Ep 2.mkv"]),
-            (&paths.show3_season3, vec!["S03E01 - Ep 1.mkv", "S03E02 - Ep 2.mkv", "S03E03 - Ep 3.mkv"]),
+            (
+                &paths.show3_season2,
+                vec!["S02E01 - Ep 1.mkv", "S02E02 - Ep 2.mkv"],
+            ),
+            (
+                &paths.show3_season3,
+                vec![
+                    "S03E01 - Ep 1.mkv",
+                    "S03E02 - Ep 2.mkv",
+                    "S03E03 - Ep 3.mkv",
+                ],
+            ),
         ];
 
         for (season_path, episodes) in tv_episodes {
@@ -239,6 +434,7 @@ mod tests {
             .route("/api/v1/categories/{id}", axum::routing::get(category_info))
             .route("/api/v1/items/{*path}", axum::routing::get(get_item_info))
             .route("/api/v1/items", axum::routing::post(post_item_info))
+            .route("/api/v1/ignore", axum::routing::post(post_ignore))
             .with_state(data)
     }
 
@@ -314,7 +510,9 @@ mod tests {
     async fn test_get_item_info_not_found() {
         let (server, _temp_dir) = setup_test_server().await;
 
-        let response = server.get(&format!("/api/v1/items/{}", NONEXISTENT_ID)).await;
+        let response = server
+            .get(&format!("/api/v1/items/{}", NONEXISTENT_ID))
+            .await;
         response.assert_status(StatusCode::NOT_FOUND);
 
         let json: NotFoundResponse = response.json();
@@ -351,5 +549,93 @@ mod tests {
 
         let json: NotFoundResponse = response.json();
         assert!(json.message.contains("not found"));
+    }
+
+    // Ignore endpoint tests
+    #[tokio::test]
+    async fn test_post_ignore_success() {
+        let (server, temp_dir) = setup_test_server().await;
+
+        // Get a child of the movies category to ignore
+        let categories_response = server.get("/api/v1/categories/movies").await;
+        let category: CategoryInfoResponse = categories_response.json();
+        let first_movie_dir = &category.items[0]; // This is a child within movies category
+
+        // The path from base should be [movies_id, movie_dir_id]
+        let request_body = IgnoreRequest {
+            item_path: vec![MOVIES_ID.to_string(), first_movie_dir.id.clone()],
+        };
+
+        let response = server.post("/api/v1/ignore").json(&request_body).await;
+        response.assert_status(StatusCode::OK);
+
+        let json: IgnoreResponse = response.json();
+        assert!(json.success);
+        assert!(json.ignored_path.is_some());
+        assert!(json.message.contains("Successfully added"));
+
+        // Verify .stignore file was created
+        let stignore_path = temp_dir.path().join("movies").join(".stignore");
+        assert!(stignore_path.exists());
+        let content = std::fs::read_to_string(&stignore_path).unwrap();
+        assert!(!content.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_post_ignore_already_ignored() {
+        let (server, temp_dir) = setup_test_server().await;
+
+        // Get a child of the movies category
+        let categories_response = server.get("/api/v1/categories/movies").await;
+        let category: CategoryInfoResponse = categories_response.json();
+        let first_movie_dir = &category.items[0];
+
+        // Pre-create .stignore file with the movie directory name that will be used
+        let stignore_path = temp_dir.path().join("movies").join(".stignore");
+        std::fs::write(&stignore_path, format!("{}\n", first_movie_dir.name)).unwrap();
+
+        let request_body = IgnoreRequest {
+            item_path: vec![MOVIES_ID.to_string(), first_movie_dir.id.clone()],
+        };
+
+        let response = server.post("/api/v1/ignore").json(&request_body).await;
+        response.assert_status(StatusCode::OK);
+
+        let json: IgnoreResponse = response.json();
+        assert!(json.success);
+        assert!(json.message.contains("already ignored"));
+    }
+
+    #[tokio::test]
+    async fn test_post_ignore_category_root_not_allowed() {
+        let (server, _temp_dir) = setup_test_server().await;
+
+        // Try to ignore the category root itself - should be rejected
+        let request_body = IgnoreRequest {
+            item_path: vec![MOVIES_ID.to_string()],
+        };
+
+        let response = server.post("/api/v1/ignore").json(&request_body).await;
+        response.assert_status(StatusCode::BAD_REQUEST);
+
+        let json: IgnoreResponse = response.json();
+        assert!(!json.success);
+        assert!(json.message.contains("Cannot ignore the category root"));
+    }
+
+    #[tokio::test]
+    async fn test_post_ignore_item_not_found() {
+        let (server, _temp_dir) = setup_test_server().await;
+
+        let request_body = IgnoreRequest {
+            item_path: vec![NONEXISTENT_ID.to_string()],
+        };
+
+        let response = server.post("/api/v1/ignore").json(&request_body).await;
+        response.assert_status(StatusCode::BAD_REQUEST);
+
+        let json: IgnoreResponse = response.json();
+        assert!(!json.success);
+        assert!(json.message.contains("Cannot ignore the category root"));
     }
 }

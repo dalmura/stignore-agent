@@ -26,6 +26,7 @@ async fn main() {
         .route("/api/v1/categories/{id}", get(tasks::category_info))
         .route("/api/v1/items/{*path}", get(tasks::get_item_info))
         .route("/api/v1/items", post(tasks::post_item_info))
+        .route("/api/v1/ignore", post(tasks::post_ignore))
         .with_state(data.clone());
 
     /* bind to the port and listen */
