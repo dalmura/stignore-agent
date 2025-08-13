@@ -289,6 +289,66 @@ pub async fn post_ignore(
     }
 }
 
+// POST ignore status
+// Checks if an item is ignored in .stignore
+pub async fn post_ignore_status(
+    State(data): State<config::Data>,
+    Json(payload): Json<IgnoreStatusRequest>,
+) -> Response {
+    tracing::info!("=== IGNORE STATUS REQUEST ===");
+    tracing::info!("Item path: {:?}", payload.item_path);
+
+    let start = std::path::Path::new(&data.agent.base_path);
+    let item_path: Vec<&str> = payload.item_path.iter().map(AsRef::as_ref).collect();
+
+    // First item in path is always the category hash ID
+    if item_path.is_empty() || item_path.len() < 2 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(IgnoreStatusResponse { ignored: false }),
+        )
+            .into_response();
+    }
+
+    let category_hash_id = &item_path[0];
+
+    // Find the category by matching the generated hash ID
+    let category = data.categories.iter().find(|c| {
+        let generated_id = filesystem::generate_id(&c.id, None);
+        generated_id == *category_hash_id
+    });
+
+    let category = match category {
+        Some(cat) => cat,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(IgnoreStatusResponse { ignored: false }),
+            )
+                .into_response();
+        }
+    };
+
+    // Resolve the filesystem path for the item
+    match filesystem::resolve_item_filesystem_path(start, item_path.as_slice(), None) {
+        Some(file_path) => {
+            let category_base_path = start.join(&category.relative_path);
+            tracing::info!("Category base path: {:?}", category_base_path);
+            tracing::info!("File path: {:?}", file_path);
+
+            let ignored = filesystem::is_path_ignored(&category_base_path, &file_path);
+            tracing::info!("Ignored status: {}", ignored);
+
+            (StatusCode::OK, Json(IgnoreStatusResponse { ignored })).into_response()
+        }
+        None => (
+            StatusCode::BAD_REQUEST,
+            Json(IgnoreStatusResponse { ignored: false }),
+        )
+            .into_response(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

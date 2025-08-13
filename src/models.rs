@@ -38,3 +38,13 @@ pub(crate) struct IgnoreResponse {
     pub message: String,
     pub ignored_path: Option<String>,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct IgnoreStatusRequest {
+    pub item_path: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct IgnoreStatusResponse {
+    pub ignored: bool,
+}

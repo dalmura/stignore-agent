@@ -197,6 +197,43 @@ pub enum StignoreResult {
     },
 }
 
+/// Checks if a filesystem path is already ignored in the .stignore file.
+///
+/// # Parameters
+/// * `category_base_path` - The base directory of the category (e.g., "/home/user/media/movies")
+/// * `file_path` - The full filesystem path to check if ignored
+///
+/// # Returns
+/// * `bool` - True if the path is ignored, false otherwise
+pub fn is_path_ignored(category_base_path: &std::path::Path, file_path: &std::path::Path) -> bool {
+    let stignore_path = category_base_path.join(".stignore");
+
+    // Calculate the path relative to the category
+    let category_relative_path = match file_path.strip_prefix(category_base_path) {
+        Ok(rel_path) => {
+            let path_str = rel_path.to_string_lossy().to_string();
+            // Ensure the path always starts with '/'
+            if path_str.starts_with('/') {
+                path_str
+            } else {
+                format!("/{}", path_str)
+            }
+        }
+        Err(_) => return false,
+    };
+
+    // Read .stignore file if it exists
+    let ignore_content = match std::fs::read_to_string(&stignore_path) {
+        Ok(content) => content,
+        Err(_) => return false, // No .stignore file means nothing is ignored
+    };
+
+    // Check if the path is in the ignore list
+    ignore_content
+        .lines()
+        .any(|line| line.trim() == category_relative_path)
+}
+
 /// Adds a filesystem path to the .stignore file in the specified category directory.
 ///
 /// This function handles all .stignore file operations including:
@@ -221,7 +258,15 @@ pub fn add_to_stignore(
 
     // Calculate the path relative to the category
     let category_relative_path = match file_path.strip_prefix(category_base_path) {
-        Ok(rel_path) => rel_path.to_string_lossy().to_string(),
+        Ok(rel_path) => {
+            let path_str = rel_path.to_string_lossy().to_string();
+            // Ensure the path always starts with '/'
+            if path_str.starts_with('/') {
+                path_str
+            } else {
+                format!("/{}", path_str)
+            }
+        }
         Err(_) => {
             return StignoreResult::Error {
                 message: "Failed to resolve category-relative path".to_string(),
