@@ -2,14 +2,16 @@ use crate::config;
 use crate::filesystem;
 use crate::models::*;
 use axum::{
+    Json,
     extract::{Path, State},
     http::StatusCode,
     response::{Html, IntoResponse, Response},
-    Json,
 };
 
 pub async fn help() -> Html<&'static str> {
-    Html("Please visit <a href='https://github.com/dalmura/stignore-agent'>the documentation</a> for further information")
+    Html(
+        "Please visit <a href='https://github.com/dalmura/stignore-agent'>the documentation</a> for further information",
+    )
 }
 
 // GET categories
@@ -291,8 +293,8 @@ pub async fn post_ignore(
 mod tests {
     use super::*;
     use crate::config::{AgentConfig, Category, Data};
-    use axum::http::StatusCode;
     use axum::Router;
+    use axum::http::StatusCode;
     use axum_test::TestServer;
     use std::fs;
     use tempfile::TempDir;
@@ -536,9 +538,10 @@ mod tests {
         response.assert_status(StatusCode::NOT_FOUND);
 
         let json: NotFoundResponse = response.json();
-        assert!(json
-            .message
-            .contains("Category with hash ID 'invalid_category_hash' not found"));
+        assert!(
+            json.message
+                .contains("Category with hash ID 'invalid_category_hash' not found")
+        );
     }
 
     // Item endpoint tests (POST)
@@ -585,9 +588,10 @@ mod tests {
         response.assert_status(StatusCode::NOT_FOUND);
 
         let json: NotFoundResponse = response.json();
-        assert!(json
-            .message
-            .contains("Category with hash ID 'invalid_category_hash' not found"));
+        assert!(
+            json.message
+                .contains("Category with hash ID 'invalid_category_hash' not found")
+        );
     }
 
     // Ignore endpoint tests

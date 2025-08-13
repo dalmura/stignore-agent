@@ -3,7 +3,7 @@ mod filesystem;
 mod models;
 mod tasks;
 
-use axum::{routing::get, routing::post, Router};
+use axum::{Router, routing::get, routing::post};
 use tracing_subscriber::fmt;
 
 use std::env;
