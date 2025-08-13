@@ -329,23 +329,30 @@ pub async fn post_ignore_status(
         }
     };
 
-    // Resolve the filesystem path for the item
+    let category_base_path = start.join(&category.relative_path);
+    tracing::info!("Category base path: {:?}", category_base_path);
+
+    // Try to resolve the filesystem path first
     match filesystem::resolve_item_filesystem_path(start, item_path.as_slice(), None) {
         Some(file_path) => {
-            let category_base_path = start.join(&category.relative_path);
-            tracing::info!("Category base path: {:?}", category_base_path);
-            tracing::info!("File path: {:?}", file_path);
-
+            tracing::info!("File path resolved: {:?}", file_path);
             let ignored = filesystem::is_path_ignored(&category_base_path, &file_path);
-            tracing::info!("Ignored status: {}", ignored);
+            tracing::info!("File exists, ignored status: {}", ignored);
 
             (StatusCode::OK, Json(IgnoreStatusResponse { ignored })).into_response()
         }
-        None => (
-            StatusCode::BAD_REQUEST,
-            Json(IgnoreStatusResponse { ignored: false }),
-        )
-            .into_response(),
+        None => {
+            tracing::info!("File path could not be resolved, checking by hash");
+
+            // File doesn't exist locally, but check if the item ID is in .stignore
+            // The last item in the path is the item we're checking
+            let item_id = item_path.last().unwrap_or(&"");
+            let ignored =
+                filesystem::is_item_id_ignored(&category_base_path, &category.id, item_id);
+            tracing::info!("Hash-based ignored status: {}", ignored);
+
+            (StatusCode::OK, Json(IgnoreStatusResponse { ignored })).into_response()
+        }
     }
 }
 

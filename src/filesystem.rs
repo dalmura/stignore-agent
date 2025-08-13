@@ -234,6 +234,142 @@ pub fn is_path_ignored(category_base_path: &std::path::Path, file_path: &std::pa
         .any(|line| line.trim() == category_relative_path)
 }
 
+/// Checks if an item ID (hash) is present in the .stignore file.
+/// This is used when the actual file doesn't exist locally but we want to check
+/// if it's been ignored by its hash ID.
+///
+/// # Parameters
+/// * `category_base_path` - The base directory of the category (e.g., "/home/user/media/movies")
+/// * `category_id` - The category ID used to generate the category hash
+/// * `item_id` - The hash ID of the item to check
+///
+/// # Returns
+/// * `bool` - True if the item ID is found in .stignore, false otherwise
+pub fn is_item_id_ignored(
+    category_base_path: &std::path::Path,
+    category_id: &str,
+    item_id: &str,
+) -> bool {
+    let stignore_path = category_base_path.join(".stignore");
+
+    tracing::debug!(
+        "is_item_id_ignored called with category_base_path: {:?}, category_id: '{}', item_id: '{}'",
+        category_base_path,
+        category_id,
+        item_id
+    );
+    tracing::debug!("Looking for .stignore file at: {:?}", stignore_path);
+
+    // Read .stignore file if it exists
+    let ignore_content = match std::fs::read_to_string(&stignore_path) {
+        Ok(content) => {
+            tracing::debug!(
+                "Successfully read .stignore file, content length: {} bytes",
+                content.len()
+            );
+            tracing::debug!("Raw .stignore content:\n{}", content);
+            content
+        }
+        Err(e) => {
+            tracing::debug!("Could not read .stignore file: {}", e);
+            return false; // No .stignore file means nothing is ignored
+        }
+    };
+
+    // Convert each path in .stignore to its corresponding item ID and compare
+    let mut found_match = false;
+    for (line_num, line) in ignore_content.lines().enumerate() {
+        let trimmed_line = line.trim();
+        tracing::debug!(
+            "Line {}: '{}' (trimmed: '{}')",
+            line_num + 1,
+            line,
+            trimmed_line
+        );
+
+        // Skip empty lines
+        if trimmed_line.is_empty() {
+            continue;
+        }
+
+        // First check if it's already a hash ID (for manual additions)
+        if trimmed_line == item_id {
+            tracing::debug!("Found direct hash match on line {}", line_num + 1);
+            found_match = true;
+            break;
+        }
+
+        // Convert the path to an item ID by processing each path component
+        let path_item_id = path_to_item_id(trimmed_line, category_id);
+        tracing::debug!(
+            "Converted path '{}' to item_id: '{}'",
+            trimmed_line,
+            path_item_id
+        );
+
+        if path_item_id == item_id {
+            tracing::debug!(
+                "Found converted path match on line {}: path '{}' -> id '{}'",
+                line_num + 1,
+                trimmed_line,
+                path_item_id
+            );
+            found_match = true;
+            break;
+        }
+    }
+
+    tracing::debug!("is_item_id_ignored result: {}", found_match);
+    found_match
+}
+
+/// Converts a filesystem path to its corresponding item ID by processing each component
+/// in the hierarchy and generating IDs progressively, starting with the category hash.
+fn path_to_item_id(path: &str, category_id: &str) -> String {
+    tracing::debug!(
+        "Converting path '{}' to item ID with category_id '{}'",
+        path,
+        category_id
+    );
+
+    // Generate the category hash first
+    let category_hash = generate_id(category_id, None);
+    tracing::debug!("Generated category hash: '{}'", category_hash);
+
+    // Remove leading slash and split into components
+    let path_clean = path.strip_prefix('/').unwrap_or(path);
+    let components: Vec<&str> = path_clean.split('/').filter(|s| !s.is_empty()).collect();
+
+    tracing::debug!("Path components: {:?}", components);
+
+    if components.is_empty() {
+        tracing::debug!("No path components, returning category hash");
+        return category_hash;
+    }
+
+    // Generate item ID by walking through the hierarchy, starting with category hash as parent
+    let mut current_parent_id = category_hash;
+    let mut final_id = String::new();
+
+    for (i, component) in components.iter().enumerate() {
+        let item_id = generate_id(component, Some(&current_parent_id));
+
+        tracing::debug!(
+            "Component {}: '{}' with parent_id '{}' -> id '{}'",
+            i,
+            component,
+            current_parent_id,
+            item_id
+        );
+
+        final_id = item_id.clone();
+        current_parent_id = item_id;
+    }
+
+    tracing::debug!("Final item ID for path '{}': '{}'", path, final_id);
+    final_id
+}
+
 /// Adds a filesystem path to the .stignore file in the specified category directory.
 ///
 /// This function handles all .stignore file operations including:
@@ -277,7 +413,7 @@ pub fn add_to_stignore(
     // Read existing .stignore or create new content
     let mut ignore_content = std::fs::read_to_string(&stignore_path).unwrap_or_default();
 
-    // Check if the path is already ignored
+    // Check if the path is already ignored (check both path and potential item ID)
     if ignore_content
         .lines()
         .any(|line| line.trim() == category_relative_path)
