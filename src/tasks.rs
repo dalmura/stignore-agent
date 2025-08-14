@@ -701,8 +701,9 @@ mod tests {
         let first_movie_dir = &category.items[0];
 
         // Pre-create .stignore file with the movie directory name that will be used
+        // Note: stignore paths start with '/' to match the format expected by add_to_stignore
         let stignore_path = temp_dir.path().join("movies").join(".stignore");
-        std::fs::write(&stignore_path, format!("{}\n", first_movie_dir.name)).unwrap();
+        std::fs::write(&stignore_path, format!("/{}\n", first_movie_dir.name)).unwrap();
 
         let request_body = IgnoreRequest {
             item_path: vec![MOVIES_ID.to_string(), first_movie_dir.id.clone()],
