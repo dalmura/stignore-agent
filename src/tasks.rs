@@ -160,60 +160,42 @@ pub async fn post_item_info(
 }
 
 // POST ignore
-// Adds a file path to .stignore in the appropriate category
+// Adds a folder path to .stignore in the appropriate category
 pub async fn post_ignore(
     State(data): State<config::Data>,
     Json(payload): Json<IgnoreRequest>,
 ) -> Response {
-    let start = std::path::Path::new(&data.agent.base_path);
-    let item_path: Vec<&str> = payload.item_path.iter().map(AsRef::as_ref).collect();
+    tracing::info!(
+        "Processing ignore request for category: '{}', folder_path: {:?}",
+        payload.category_id,
+        payload.folder_path
+    );
 
-    tracing::info!("Processing ignore request for path: {:?}", &item_path);
-
-    // First item in path is always the category hash ID
-    if item_path.is_empty() {
+    // Validate folder path is not empty
+    if payload.folder_path.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
             Json(IgnoreResponse {
                 success: false,
-                message: "Item path cannot be empty".to_string(),
+                message: "Folder path cannot be empty".to_string(),
                 ignored_path: None,
             }),
         )
             .into_response();
     }
 
-    // Path must contain more than just the category - need an actual item to ignore
-    if item_path.len() < 2 {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(IgnoreResponse {
-                success: false,
-                message:
-                    "Cannot ignore the category root itself, only children within the category"
-                        .to_string(),
-                ignored_path: None,
-            }),
-        )
-            .into_response();
-    }
-
-    let category_hash_id = &item_path[0];
-
-    // Find the category by matching the generated hash ID
-    let category = data.categories.iter().find(|c| {
+    // Find the category by matching the hashed category ID
+    let category = match data.categories.iter().find(|c| {
         let generated_id = filesystem::generate_id(&c.id, None);
-        generated_id == *category_hash_id
-    });
-
-    let category = match category {
+        generated_id == payload.category_id
+    }) {
         Some(cat) => cat,
         None => {
             return (
                 StatusCode::BAD_REQUEST,
                 Json(IgnoreResponse {
                     success: false,
-                    message: format!("Category with hash ID '{}' not found", category_hash_id),
+                    message: format!("Category with hash ID '{}' not found", payload.category_id),
                     ignored_path: None,
                 }),
             )
@@ -221,67 +203,46 @@ pub async fn post_ignore(
         }
     };
 
-    // Validate the item exists
-    match filesystem::get_item(start, item_path.as_slice(), None) {
-        Some(_item) => {
-            // Resolve the filesystem path for the item
-            match filesystem::resolve_item_filesystem_path(start, item_path.as_slice(), None) {
-                Some(file_path) => {
-                    let category_base_path = start.join(&category.relative_path);
+    let category_base_path =
+        std::path::Path::new(&data.agent.base_path).join(&category.relative_path);
 
-                    match filesystem::add_to_stignore(
-                        &category_base_path,
-                        &file_path,
-                        &category.name,
-                    ) {
-                        filesystem::StignoreResult::Success {
-                            ignored_path,
-                            message,
-                        } => (
-                            StatusCode::OK,
-                            Json(IgnoreResponse {
-                                success: true,
-                                message,
-                                ignored_path: Some(ignored_path),
-                            }),
-                        )
-                            .into_response(),
-                        filesystem::StignoreResult::AlreadyIgnored { ignored_path } => (
-                            StatusCode::OK,
-                            Json(IgnoreResponse {
-                                success: true,
-                                message: "Path is already ignored".to_string(),
-                                ignored_path: Some(ignored_path),
-                            }),
-                        )
-                            .into_response(),
-                        filesystem::StignoreResult::Error { message } => (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(IgnoreResponse {
-                                success: false,
-                                message,
-                                ignored_path: None,
-                            }),
-                        )
-                            .into_response(),
-                    }
-                }
-                None => (
-                    StatusCode::NOT_FOUND,
-                    Json(IgnoreResponse {
-                        success: false,
-                        message: "Could not resolve filesystem path for item".to_string(),
-                        ignored_path: None,
-                    }),
-                )
-                    .into_response(),
-            }
-        }
-        None => (
-            StatusCode::NOT_FOUND,
+    // Build the folder path string for .stignore (always use forward slashes)
+    let folder_path_str = format!("/{}", payload.folder_path.join("/"));
+
+    // For validation, construct the actual filesystem path
+    let mut file_path = category_base_path.clone();
+    for folder in &payload.folder_path {
+        file_path = file_path.join(folder);
+    }
+
+    // Add to .stignore using the folder path string directly
+    match filesystem::add_to_stignore(&category_base_path, &folder_path_str, &category.name) {
+        filesystem::StignoreResult::Success {
+            ignored_path,
+            message,
+        } => (
+            StatusCode::OK,
+            Json(IgnoreResponse {
+                success: true,
+                message,
+                ignored_path: Some(ignored_path),
+            }),
+        )
+            .into_response(),
+        filesystem::StignoreResult::AlreadyIgnored { ignored_path } => (
+            StatusCode::OK,
+            Json(IgnoreResponse {
+                success: true,
+                message: "Path is already ignored".to_string(),
+                ignored_path: Some(ignored_path),
+            }),
+        )
+            .into_response(),
+        filesystem::StignoreResult::Error { message } => (
+            StatusCode::INTERNAL_SERVER_ERROR,
             Json(IgnoreResponse {
                 success: false,
-                message: format!("Item Path '{:?}' not found", &item_path),
+                message,
                 ignored_path: None,
             }),
         )
@@ -290,19 +251,20 @@ pub async fn post_ignore(
 }
 
 // POST ignore status
-// Checks if an item is ignored in .stignore
+// Checks if a folder is ignored in .stignore
 pub async fn post_ignore_status(
     State(data): State<config::Data>,
     Json(payload): Json<IgnoreStatusRequest>,
 ) -> Response {
     tracing::info!("=== IGNORE STATUS REQUEST ===");
-    tracing::info!("Item path: {:?}", payload.item_path);
+    tracing::info!(
+        "Category ID: '{}', folder path: {:?}",
+        payload.category_id,
+        payload.folder_path
+    );
 
-    let start = std::path::Path::new(&data.agent.base_path);
-    let item_path: Vec<&str> = payload.item_path.iter().map(AsRef::as_ref).collect();
-
-    // First item in path is always the category hash ID
-    if item_path.is_empty() || item_path.len() < 2 {
+    // Validate folder path is not empty
+    if payload.folder_path.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
             Json(IgnoreStatusResponse { ignored: false }),
@@ -310,15 +272,11 @@ pub async fn post_ignore_status(
             .into_response();
     }
 
-    let category_hash_id = &item_path[0];
-
-    // Find the category by matching the generated hash ID
-    let category = data.categories.iter().find(|c| {
+    // Find the category by matching the hashed category ID
+    let category = match data.categories.iter().find(|c| {
         let generated_id = filesystem::generate_id(&c.id, None);
-        generated_id == *category_hash_id
-    });
-
-    let category = match category {
+        generated_id == payload.category_id
+    }) {
         Some(cat) => cat,
         None => {
             return (
@@ -329,31 +287,19 @@ pub async fn post_ignore_status(
         }
     };
 
-    let category_base_path = start.join(&category.relative_path);
+    let category_base_path =
+        std::path::Path::new(&data.agent.base_path).join(&category.relative_path);
     tracing::info!("Category base path: {:?}", category_base_path);
 
-    // Try to resolve the filesystem path first
-    match filesystem::resolve_item_filesystem_path(start, item_path.as_slice(), None) {
-        Some(file_path) => {
-            tracing::info!("File path resolved: {:?}", file_path);
-            let ignored = filesystem::is_path_ignored(&category_base_path, &file_path);
-            tracing::info!("File exists, ignored status: {}", ignored);
+    // Build the folder path string for checking (always use forward slashes)
+    let folder_path_str = format!("/{}", payload.folder_path.join("/"));
+    tracing::info!("Checking folder path: '{}'", folder_path_str);
 
-            (StatusCode::OK, Json(IgnoreStatusResponse { ignored })).into_response()
-        }
-        None => {
-            tracing::info!("File path could not be resolved, checking by hash");
+    // Check if the folder path is ignored
+    let ignored = filesystem::is_path_ignored(&category_base_path, &folder_path_str);
+    tracing::info!("Folder ignored status: {}", ignored);
 
-            // File doesn't exist locally, but check if the item ID is in .stignore
-            // The last item in the path is the item we're checking
-            let item_id = item_path.last().unwrap_or(&"");
-            let ignored =
-                filesystem::is_item_id_ignored(&category_base_path, &category.id, item_id);
-            tracing::info!("Hash-based ignored status: {}", ignored);
-
-            (StatusCode::OK, Json(IgnoreStatusResponse { ignored })).into_response()
-        }
-    }
+    (StatusCode::OK, Json(IgnoreStatusResponse { ignored })).into_response()
 }
 
 #[cfg(test)]
@@ -509,6 +455,10 @@ mod tests {
             .route("/api/v1/items/{*path}", axum::routing::get(get_item_info))
             .route("/api/v1/items", axum::routing::post(post_item_info))
             .route("/api/v1/ignore", axum::routing::post(post_ignore))
+            .route(
+                "/api/v1/ignore-status",
+                axum::routing::post(post_ignore_status),
+            )
             .with_state(data)
     }
 
@@ -666,14 +616,11 @@ mod tests {
     async fn test_post_ignore_success() {
         let (server, temp_dir) = setup_test_server().await;
 
-        // Get a child of the movies category to ignore
-        let categories_response = server.get("/api/v1/categories/movies").await;
-        let category: CategoryInfoResponse = categories_response.json();
-        let first_movie_dir = &category.items[0]; // This is a child within movies category
+        // Test ignoring an existing folder
 
-        // The path from base should be [movies_id, movie_dir_id]
         let request_body = IgnoreRequest {
-            item_path: vec![MOVIES_ID.to_string(), first_movie_dir.id.clone()],
+            category_id: MOVIES_ID.to_string(),
+            folder_path: vec!["Movie 1 (2023)".to_string()],
         };
 
         let response = server.post("/api/v1/ignore").json(&request_body).await;
@@ -695,18 +642,13 @@ mod tests {
     async fn test_post_ignore_already_ignored() {
         let (server, temp_dir) = setup_test_server().await;
 
-        // Get a child of the movies category
-        let categories_response = server.get("/api/v1/categories/movies").await;
-        let category: CategoryInfoResponse = categories_response.json();
-        let first_movie_dir = &category.items[0];
-
-        // Pre-create .stignore file with the movie directory name that will be used
-        // Note: stignore paths start with '/' to match the format expected by add_to_stignore
+        // Pre-create .stignore file with the movie directory
         let stignore_path = temp_dir.path().join("movies").join(".stignore");
-        std::fs::write(&stignore_path, format!("/{}\n", first_movie_dir.name)).unwrap();
+        std::fs::write(&stignore_path, "/Movie 1 (2023)\n").unwrap();
 
         let request_body = IgnoreRequest {
-            item_path: vec![MOVIES_ID.to_string(), first_movie_dir.id.clone()],
+            category_id: MOVIES_ID.to_string(),
+            folder_path: vec!["Movie 1 (2023)".to_string()],
         };
 
         let response = server.post("/api/v1/ignore").json(&request_body).await;
@@ -718,12 +660,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_post_ignore_category_root_not_allowed() {
+    async fn test_post_ignore_empty_path() {
         let (server, _temp_dir) = setup_test_server().await;
 
-        // Try to ignore the category root itself - should be rejected
+        // Try to ignore with empty folder path - should be rejected
         let request_body = IgnoreRequest {
-            item_path: vec![MOVIES_ID.to_string()],
+            category_id: MOVIES_ID.to_string(),
+            folder_path: vec![],
         };
 
         let response = server.post("/api/v1/ignore").json(&request_body).await;
@@ -731,15 +674,16 @@ mod tests {
 
         let json: IgnoreResponse = response.json();
         assert!(!json.success);
-        assert!(json.message.contains("Cannot ignore the category root"));
+        assert!(json.message.contains("Folder path cannot be empty"));
     }
 
     #[tokio::test]
-    async fn test_post_ignore_item_not_found() {
+    async fn test_post_ignore_invalid_category() {
         let (server, _temp_dir) = setup_test_server().await;
 
         let request_body = IgnoreRequest {
-            item_path: vec![NONEXISTENT_ID.to_string()],
+            category_id: "nonexistent_hash_id".to_string(),
+            folder_path: vec!["Some Movie".to_string()],
         };
 
         let response = server.post("/api/v1/ignore").json(&request_body).await;
@@ -747,6 +691,159 @@ mod tests {
 
         let json: IgnoreResponse = response.json();
         assert!(!json.success);
-        assert!(json.message.contains("Cannot ignore the category root"));
+        assert!(
+            json.message
+                .contains("Category with hash ID 'nonexistent_hash_id' not found")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_post_ignore_nonexistent_folder() {
+        let (server, temp_dir) = setup_test_server().await;
+
+        // Test ignoring a folder that doesn't exist on disk - this should work now!
+        let request_body = IgnoreRequest {
+            category_id: MOVIES_ID.to_string(),
+            folder_path: vec!["Non-existent Movie (2025)".to_string()],
+        };
+
+        let response = server.post("/api/v1/ignore").json(&request_body).await;
+        response.assert_status(StatusCode::OK);
+
+        let json: IgnoreResponse = response.json();
+        assert!(json.success);
+        assert!(json.ignored_path.is_some());
+        assert_eq!(json.ignored_path.unwrap(), "/Non-existent Movie (2025)");
+        assert!(json.message.contains("Successfully added"));
+
+        // Verify .stignore file was created with the non-existent folder
+        let stignore_path = temp_dir.path().join("movies").join(".stignore");
+        assert!(stignore_path.exists());
+        let content = std::fs::read_to_string(&stignore_path).unwrap();
+        assert!(content.contains("/Non-existent Movie (2025)"));
+    }
+
+    // Ignore status endpoint tests
+    #[tokio::test]
+    async fn test_post_ignore_status_not_ignored() {
+        let (server, _temp_dir) = setup_test_server().await;
+
+        let request_body = IgnoreStatusRequest {
+            category_id: MOVIES_ID.to_string(),
+            folder_path: vec!["Movie 1 (2023)".to_string()],
+        };
+
+        let response = server
+            .post("/api/v1/ignore-status")
+            .json(&request_body)
+            .await;
+        response.assert_status(StatusCode::OK);
+
+        let json: IgnoreStatusResponse = response.json();
+        assert!(!json.ignored);
+    }
+
+    #[tokio::test]
+    async fn test_post_ignore_status_ignored() {
+        let (server, temp_dir) = setup_test_server().await;
+
+        // Pre-create .stignore file with the movie directory
+        let stignore_path = temp_dir.path().join("movies").join(".stignore");
+        std::fs::write(&stignore_path, "/Movie 1 (2023)\n").unwrap();
+
+        let request_body = IgnoreStatusRequest {
+            category_id: MOVIES_ID.to_string(),
+            folder_path: vec!["Movie 1 (2023)".to_string()],
+        };
+
+        let response = server
+            .post("/api/v1/ignore-status")
+            .json(&request_body)
+            .await;
+        response.assert_status(StatusCode::OK);
+
+        let json: IgnoreStatusResponse = response.json();
+        assert!(json.ignored);
+    }
+
+    #[tokio::test]
+    async fn test_post_ignore_status_empty_path() {
+        let (server, _temp_dir) = setup_test_server().await;
+
+        let request_body = IgnoreStatusRequest {
+            category_id: MOVIES_ID.to_string(),
+            folder_path: vec![],
+        };
+
+        let response = server
+            .post("/api/v1/ignore-status")
+            .json(&request_body)
+            .await;
+        response.assert_status(StatusCode::BAD_REQUEST);
+
+        let json: IgnoreStatusResponse = response.json();
+        assert!(!json.ignored);
+    }
+
+    #[tokio::test]
+    async fn test_post_ignore_status_invalid_category() {
+        let (server, _temp_dir) = setup_test_server().await;
+
+        let request_body = IgnoreStatusRequest {
+            category_id: "nonexistent_hash_id".to_string(),
+            folder_path: vec!["Some Movie".to_string()],
+        };
+
+        let response = server
+            .post("/api/v1/ignore-status")
+            .json(&request_body)
+            .await;
+        response.assert_status(StatusCode::BAD_REQUEST);
+
+        let json: IgnoreStatusResponse = response.json();
+        assert!(!json.ignored);
+    }
+
+    #[tokio::test]
+    async fn test_post_ignore_status_missing_item_ignored() {
+        let (server, temp_dir) = setup_test_server().await;
+
+        // Pre-create .stignore file with a movie that doesn't exist on disk
+        let stignore_path = temp_dir.path().join("movies").join(".stignore");
+        std::fs::write(&stignore_path, "/Non-existent Movie (2025)\n").unwrap();
+
+        let request_body = IgnoreStatusRequest {
+            category_id: MOVIES_ID.to_string(),
+            folder_path: vec!["Non-existent Movie (2025)".to_string()],
+        };
+
+        let response = server
+            .post("/api/v1/ignore-status")
+            .json(&request_body)
+            .await;
+        response.assert_status(StatusCode::OK);
+
+        let json: IgnoreStatusResponse = response.json();
+        assert!(json.ignored);
+    }
+
+    #[tokio::test]
+    async fn test_post_ignore_status_missing_item_not_ignored() {
+        let (server, _temp_dir) = setup_test_server().await;
+
+        // Check status of a non-existent movie that's not in .stignore
+        let request_body = IgnoreStatusRequest {
+            category_id: MOVIES_ID.to_string(),
+            folder_path: vec!["Another Non-existent Movie (2026)".to_string()],
+        };
+
+        let response = server
+            .post("/api/v1/ignore-status")
+            .json(&request_body)
+            .await;
+        response.assert_status(StatusCode::OK);
+
+        let json: IgnoreStatusResponse = response.json();
+        assert!(!json.ignored);
     }
 }

@@ -29,7 +29,8 @@ pub(crate) struct NotFoundResponse {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct IgnoreRequest {
-    pub item_path: Vec<String>,
+    pub category_id: String,
+    pub folder_path: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -41,7 +42,8 @@ pub(crate) struct IgnoreResponse {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct IgnoreStatusRequest {
-    pub item_path: Vec<String>,
+    pub category_id: String,
+    pub folder_path: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
