@@ -75,7 +75,7 @@ pub fn build_items(item_path: &Path, parent_id: Option<&str>, leaf: bool) -> Vec
                 .collect(),
         },
         Err(why) => {
-            println!("ERROR: Unable to list path: {:?}", why.kind());
+            tracing::warn!("Unable to list path: {:?}", why.kind());
             vec![]
         }
     }
@@ -83,41 +83,21 @@ pub fn build_items(item_path: &Path, parent_id: Option<&str>, leaf: bool) -> Vec
 
 pub fn get_item(start: &Path, path: &[&str], parent_id: Option<&str>) -> Option<ItemGroup> {
     if path.is_empty() {
-        tracing::debug!("Path is empty, nothing to do here?");
         return None;
     }
 
-    tracing::debug!("entered get_item");
-    tracing::debug!("start: {:?}", start);
-    tracing::debug!("parent_id: {:?}", parent_id);
-
     let item_id = path[0];
-    tracing::debug!("picked first item_id {}", item_id);
-
     let children = build_items(start, parent_id, false);
-    tracing::debug!("found {} children", &children.len());
-
-    tracing::debug!("Looking for child id {}", item_id);
     let found = children
         .iter()
-        .find(|child| {
-            tracing::debug!("comparing against child {}", &child.id);
-            child.id == item_id
-        })
+        .find(|child| child.id == item_id)
         .map(|c| c.to_owned());
-
-    if found.is_some() {
-        tracing::debug!("Found a matching child");
-    } else {
-        tracing::debug!("Didn't find any matching children");
-    }
 
     match path.len() {
         1 => found,
         _ => match found {
             Some(child) => {
                 let start_here = start.join(child.name);
-                tracing::debug!("entering get_item recursively");
                 get_item(start_here.as_path(), &path[1..], Some(item_id))
             }
             None => None,

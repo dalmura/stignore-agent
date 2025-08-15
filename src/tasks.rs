@@ -122,10 +122,6 @@ pub async fn post_item_info(
     let start = std::path::Path::new(&data.agent.base_path);
     let item_path: Vec<&str> = payload.item_path.iter().map(AsRef::as_ref).collect();
 
-    for item in &item_path {
-        tracing::debug!("Finding {}", *item);
-    }
-
     // Validate that the first item in the path corresponds to a valid category
     if !item_path.is_empty() {
         let category_hash_id = &item_path[0];
@@ -256,13 +252,6 @@ pub async fn post_ignore_status(
     State(data): State<config::Data>,
     Json(payload): Json<IgnoreStatusRequest>,
 ) -> Response {
-    tracing::info!("=== IGNORE STATUS REQUEST ===");
-    tracing::info!(
-        "Category ID: '{}', folder path: {:?}",
-        payload.category_id,
-        payload.folder_path
-    );
-
     // Validate folder path is not empty
     if payload.folder_path.is_empty() {
         return (
@@ -289,15 +278,12 @@ pub async fn post_ignore_status(
 
     let category_base_path =
         std::path::Path::new(&data.agent.base_path).join(&category.relative_path);
-    tracing::info!("Category base path: {:?}", category_base_path);
 
     // Build the folder path string for checking (always use forward slashes)
     let folder_path_str = format!("/{}", payload.folder_path.join("/"));
-    tracing::info!("Checking folder path: '{}'", folder_path_str);
 
     // Check if the folder path is ignored
     let ignored = filesystem::is_path_ignored(&category_base_path, &folder_path_str);
-    tracing::info!("Folder ignored status: {}", ignored);
 
     (StatusCode::OK, Json(IgnoreStatusResponse { ignored })).into_response()
 }
