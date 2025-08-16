@@ -288,6 +288,138 @@ pub async fn post_ignore_status(
     (StatusCode::OK, Json(IgnoreStatusResponse { ignored })).into_response()
 }
 
+// POST ignore-status-bulk
+// Checks ignore status for multiple folders at once
+pub async fn post_ignore_status_bulk(
+    State(data): State<config::Data>,
+    Json(payload): Json<BulkIgnoreStatusRequest>,
+) -> Response {
+    let mut results = Vec::new();
+
+    for item in payload.items {
+        // Use the same logic as the single ignore status check
+        let ignored = if item.folder_path.is_empty() {
+            false
+        } else {
+            // Find the category by matching the hashed category ID
+            match data.categories.iter().find(|c| {
+                let generated_id = filesystem::generate_id(&c.id, None);
+                generated_id == item.category_id
+            }) {
+                Some(category) => {
+                    let category_base_path =
+                        std::path::Path::new(&data.agent.base_path).join(&category.relative_path);
+
+                    // Build the folder path string for checking (always use forward slashes)
+                    let folder_path_str = format!("/{}", item.folder_path.join("/"));
+
+                    // Check if the folder path is ignored
+                    filesystem::is_path_ignored(&category_base_path, &folder_path_str)
+                }
+                None => false, // Invalid category
+            }
+        };
+
+        results.push(BulkIgnoreStatusItem {
+            category_id: item.category_id,
+            folder_path: item.folder_path,
+            ignored,
+        });
+    }
+
+    (
+        StatusCode::OK,
+        Json(BulkIgnoreStatusResponse { items: results }),
+    )
+        .into_response()
+}
+
+// POST delete
+// Deletes a folder path from the filesystem
+pub async fn post_delete(
+    State(data): State<config::Data>,
+    Json(payload): Json<DeleteRequest>,
+) -> Response {
+    tracing::info!(
+        "Processing delete request for category: '{}', folder_path: {:?}",
+        payload.category_id,
+        payload.folder_path
+    );
+
+    // Validate folder path is not empty
+    if payload.folder_path.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(DeleteResponse {
+                success: false,
+                message: "Folder path cannot be empty".to_string(),
+                deleted_path: None,
+            }),
+        )
+            .into_response();
+    }
+
+    // Find the category by matching the hashed category ID
+    let category = match data.categories.iter().find(|c| {
+        let generated_id = filesystem::generate_id(&c.id, None);
+        generated_id == payload.category_id
+    }) {
+        Some(cat) => cat,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(DeleteResponse {
+                    success: false,
+                    message: format!("Category with hash ID '{}' not found", payload.category_id),
+                    deleted_path: None,
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let category_base_path =
+        std::path::Path::new(&data.agent.base_path).join(&category.relative_path);
+
+    // Delete from filesystem
+    match filesystem::delete_from_filesystem(
+        &category_base_path,
+        &payload.folder_path,
+        &category.name,
+    ) {
+        filesystem::DeleteResult::Success {
+            deleted_path,
+            message,
+        } => (
+            StatusCode::OK,
+            Json(DeleteResponse {
+                success: true,
+                message,
+                deleted_path: Some(deleted_path),
+            }),
+        )
+            .into_response(),
+        filesystem::DeleteResult::NotFound { requested_path } => (
+            StatusCode::NOT_FOUND,
+            Json(DeleteResponse {
+                success: false,
+                message: format!("Path '{}' not found", requested_path),
+                deleted_path: None,
+            }),
+        )
+            .into_response(),
+        filesystem::DeleteResult::Error { message } => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(DeleteResponse {
+                success: false,
+                message,
+                deleted_path: None,
+            }),
+        )
+            .into_response(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -445,6 +577,11 @@ mod tests {
                 "/api/v1/ignore-status",
                 axum::routing::post(post_ignore_status),
             )
+            .route(
+                "/api/v1/ignore-status-bulk",
+                axum::routing::post(post_ignore_status_bulk),
+            )
+            .route("/api/v1/delete", axum::routing::post(post_delete))
             .with_state(data)
     }
 
@@ -831,5 +968,161 @@ mod tests {
 
         let json: IgnoreStatusResponse = response.json();
         assert!(!json.ignored);
+    }
+
+    #[tokio::test]
+    async fn test_post_ignore_status_bulk() {
+        let (server, temp_dir) = setup_test_server().await;
+
+        // Pre-create .stignore file with one ignored item
+        let stignore_path = temp_dir.path().join("movies").join(".stignore");
+        std::fs::write(&stignore_path, "/Movie 1 (2023)\n").unwrap();
+
+        // Test with multiple items - some ignored, some not, some invalid
+        let request_body = BulkIgnoreStatusRequest {
+            items: vec![
+                IgnoreStatusRequest {
+                    category_id: MOVIES_ID.to_string(),
+                    folder_path: vec!["Movie 1 (2023)".to_string()], // ignored
+                },
+                IgnoreStatusRequest {
+                    category_id: MOVIES_ID.to_string(),
+                    folder_path: vec!["Movie 2 (2023)".to_string()], // not ignored
+                },
+                IgnoreStatusRequest {
+                    category_id: "invalid_category".to_string(),
+                    folder_path: vec!["Any Movie".to_string()], // invalid category
+                },
+            ],
+        };
+
+        let response = server
+            .post("/api/v1/ignore-status-bulk")
+            .json(&request_body)
+            .await;
+        response.assert_status(StatusCode::OK);
+
+        let json: BulkIgnoreStatusResponse = response.json();
+
+        // Should return 3 items
+        assert_eq!(json.items.len(), 3);
+
+        // First item should be ignored
+        assert_eq!(json.items[0].category_id, MOVIES_ID);
+        assert_eq!(json.items[0].folder_path, vec!["Movie 1 (2023)"]);
+        assert!(json.items[0].ignored);
+
+        // Second item should not be ignored
+        assert_eq!(json.items[1].category_id, MOVIES_ID);
+        assert_eq!(json.items[1].folder_path, vec!["Movie 2 (2023)"]);
+        assert!(!json.items[1].ignored);
+
+        // Third item (invalid category) should not be ignored
+        assert_eq!(json.items[2].category_id, "invalid_category");
+        assert_eq!(json.items[2].folder_path, vec!["Any Movie"]);
+        assert!(!json.items[2].ignored);
+    }
+
+    // Delete endpoint tests
+    #[tokio::test]
+    async fn test_post_delete_success() {
+        let (server, _temp_dir) = setup_test_server().await;
+
+        let request_body = DeleteRequest {
+            category_id: MOVIES_ID.to_string(),
+            folder_path: vec!["Movie 1 (2023)".to_string()],
+        };
+
+        let response = server.post("/api/v1/delete").json(&request_body).await;
+        response.assert_status(StatusCode::OK);
+
+        let json: DeleteResponse = response.json();
+        assert!(json.success);
+        assert!(json.deleted_path.is_some());
+        assert_eq!(json.deleted_path.unwrap(), "/Movie 1 (2023)");
+        assert!(json.message.contains("Successfully deleted"));
+    }
+
+    #[tokio::test]
+    async fn test_post_delete_not_found() {
+        let (server, _temp_dir) = setup_test_server().await;
+
+        let request_body = DeleteRequest {
+            category_id: MOVIES_ID.to_string(),
+            folder_path: vec!["Non-existent Movie (2025)".to_string()],
+        };
+
+        let response = server.post("/api/v1/delete").json(&request_body).await;
+        response.assert_status(StatusCode::NOT_FOUND);
+
+        let json: DeleteResponse = response.json();
+        assert!(!json.success);
+        assert!(json.message.contains("not found"));
+        assert!(json.deleted_path.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_post_delete_empty_path() {
+        let (server, _temp_dir) = setup_test_server().await;
+
+        let request_body = DeleteRequest {
+            category_id: MOVIES_ID.to_string(),
+            folder_path: vec![],
+        };
+
+        let response = server.post("/api/v1/delete").json(&request_body).await;
+        response.assert_status(StatusCode::BAD_REQUEST);
+
+        let json: DeleteResponse = response.json();
+        assert!(!json.success);
+        assert!(json.message.contains("Folder path cannot be empty"));
+        assert!(json.deleted_path.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_post_delete_invalid_category() {
+        let (server, _temp_dir) = setup_test_server().await;
+
+        let request_body = DeleteRequest {
+            category_id: "nonexistent_hash_id".to_string(),
+            folder_path: vec!["Some Movie".to_string()],
+        };
+
+        let response = server.post("/api/v1/delete").json(&request_body).await;
+        response.assert_status(StatusCode::BAD_REQUEST);
+
+        let json: DeleteResponse = response.json();
+        assert!(!json.success);
+        assert!(
+            json.message
+                .contains("Category with hash ID 'nonexistent_hash_id' not found")
+        );
+        assert!(json.deleted_path.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_post_delete_file() {
+        let (server, temp_dir) = setup_test_server().await;
+
+        // Create a test file to delete
+        let test_file_path = temp_dir.path().join("movies").join("test-file.txt");
+        std::fs::write(&test_file_path, "test content").unwrap();
+
+        let request_body = DeleteRequest {
+            category_id: MOVIES_ID.to_string(),
+            folder_path: vec!["test-file.txt".to_string()],
+        };
+
+        let response = server.post("/api/v1/delete").json(&request_body).await;
+        response.assert_status(StatusCode::OK);
+
+        let json: DeleteResponse = response.json();
+        assert!(json.success);
+        assert!(json.deleted_path.is_some());
+        assert_eq!(json.deleted_path.unwrap(), "/test-file.txt");
+        assert!(json.message.contains("Successfully deleted"));
+
+        // Verify file was actually deleted
+        assert!(!test_file_path.exists());
     }
 }

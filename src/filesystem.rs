@@ -120,6 +120,21 @@ pub enum StignoreResult {
     },
 }
 
+/// Result of deleting a path from filesystem
+#[derive(Debug, Clone)]
+pub enum DeleteResult {
+    Success {
+        deleted_path: String,
+        message: String,
+    },
+    NotFound {
+        requested_path: String,
+    },
+    Error {
+        message: String,
+    },
+}
+
 /// Checks if a folder path is ignored in the .stignore file.
 /// This function works with folder names directly and supports non-existent folders.
 ///
@@ -206,6 +221,58 @@ pub fn add_to_stignore(
         },
         Err(err) => StignoreResult::Error {
             message: format!("Failed to write .stignore file: {}", err),
+        },
+    }
+}
+
+/// Deletes a folder path from the filesystem in the specified category directory.
+/// This function actually removes files and directories from disk.
+///
+/// # Parameters
+/// * `category_base_path` - The base directory of the category (e.g., "/home/user/media/movies")
+/// * `folder_path` - The folder path to delete (as a vector of path components)
+/// * `category_name` - Name of the category for success messages
+///
+/// # Returns
+/// * `DeleteResult` - Success, not found, or error result
+pub fn delete_from_filesystem(
+    category_base_path: &std::path::Path,
+    folder_path: &[String],
+    category_name: &str,
+) -> DeleteResult {
+    // Build the complete path to delete
+    let mut full_path = category_base_path.to_path_buf();
+    for component in folder_path {
+        full_path = full_path.join(component);
+    }
+
+    // Convert to display string for messages
+    let folder_path_str = format!("/{}", folder_path.join("/"));
+
+    // Check if the path exists
+    if !full_path.exists() {
+        return DeleteResult::NotFound {
+            requested_path: folder_path_str,
+        };
+    }
+
+    // Attempt to delete the path
+    let result = if full_path.is_dir() {
+        std::fs::remove_dir_all(&full_path)
+    } else {
+        std::fs::remove_file(&full_path)
+    };
+
+    match result {
+        Ok(_) => DeleteResult::Success {
+            deleted_path: folder_path_str.clone(),
+            message: format!(
+                "Successfully deleted '{}' from category '{}'",
+                folder_path_str, category_name
+            ),
+        },
+        Err(err) => DeleteResult::Error {
+            message: format!("Failed to delete '{}': {}", folder_path_str, err),
         },
     }
 }

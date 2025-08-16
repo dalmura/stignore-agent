@@ -16,7 +16,7 @@ kill_agents() {
 
 trap 'kill_agents' SIGINT
 
-print 'Agents running, CTRL+C to quit'
+echo 'Agents running, CTRL+C to quit'
 while true; do
     sleep 10
 done

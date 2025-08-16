@@ -28,6 +28,11 @@ async fn main() {
         .route("/api/v1/items", post(tasks::post_item_info))
         .route("/api/v1/ignore", post(tasks::post_ignore))
         .route("/api/v1/ignore-status", post(tasks::post_ignore_status))
+        .route(
+            "/api/v1/ignore-status-bulk",
+            post(tasks::post_ignore_status_bulk),
+        )
+        .route("/api/v1/delete", post(tasks::post_delete))
         .with_state(data.clone());
 
     /* bind to the port and listen */

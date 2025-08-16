@@ -50,3 +50,33 @@ pub(crate) struct IgnoreStatusRequest {
 pub(crate) struct IgnoreStatusResponse {
     pub ignored: bool,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct BulkIgnoreStatusRequest {
+    pub items: Vec<IgnoreStatusRequest>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct BulkIgnoreStatusItem {
+    pub category_id: String,
+    pub folder_path: Vec<String>,
+    pub ignored: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct BulkIgnoreStatusResponse {
+    pub items: Vec<BulkIgnoreStatusItem>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct DeleteRequest {
+    pub category_id: String,
+    pub folder_path: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(crate) struct DeleteResponse {
+    pub success: bool,
+    pub message: String,
+    pub deleted_path: Option<String>,
+}
