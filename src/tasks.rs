@@ -25,7 +25,8 @@ pub async fn category_list(State(data): State<config::Data>) -> impl IntoRespons
             let children = filesystem::build_items(&category_path, false);
 
             filesystem::ItemGroup {
-                name: c.id.clone(),
+                id: c.id.clone(),
+                name: c.name.clone(),
                 size_kb: children.iter().map(|c| c.size_kb).sum(),
                 items: children,
                 leaf: false,
@@ -106,7 +107,8 @@ pub async fn post_item_info(
         // Return the category itself
         let items = filesystem::build_items(&category_path, false);
         let category_item = filesystem::ItemGroup {
-            name: category.id.clone(),
+            id: category.id.clone(),
+            name: category.name.clone(),
             size_kb: items.iter().map(|c| c.size_kb).sum(),
             items,
             leaf: false,
@@ -573,8 +575,14 @@ mod tests {
 
         let json: CategoryListingResponse = response.json();
         assert_eq!(json.items.len(), 2);
-        assert!(json.items.iter().any(|item| item.name == "movies"));
-        assert!(json.items.iter().any(|item| item.name == "tv"));
+
+        // Check for movies category
+        let movies_category = json.items.iter().find(|item| item.id == "movies").unwrap();
+        assert_eq!(movies_category.name, "Movies");
+
+        // Check for tv category
+        let tv_category = json.items.iter().find(|item| item.id == "tv").unwrap();
+        assert_eq!(tv_category.name, "TV Shows");
     }
 
     #[tokio::test]
@@ -613,7 +621,8 @@ mod tests {
         response.assert_status(StatusCode::OK);
 
         let json: ItemInfoResponse = response.json();
-        assert_eq!(json.item.name, "movies");
+        assert_eq!(json.item.id, "movies");
+        assert_eq!(json.item.name, "Movies");
         assert_eq!(json.item.items.len(), 2);
     }
 

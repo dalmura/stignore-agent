@@ -9,6 +9,7 @@ pub fn build_path(base_path: &String, next_item: &String) -> PathBuf {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct ItemGroup {
+    pub id: String,
     pub name: String,
     pub size_kb: u64,
     pub items: Vec<ItemGroup>,
@@ -28,6 +29,7 @@ fn dir_to_item(entry: fs::DirEntry) -> ItemGroup {
     }
 
     ItemGroup {
+        id: filename.clone(),
         name: filename,
         size_kb: children.iter().map(|c| c.size_kb).sum(),
         items: children,
@@ -39,6 +41,7 @@ fn file_to_item(entry: fs::DirEntry) -> ItemGroup {
     let filename = entry.file_name().into_string().unwrap();
 
     ItemGroup {
+        id: filename.clone(),
         name: filename,
         size_kb: entry.metadata().unwrap().len() / 1024,
         items: vec![],
