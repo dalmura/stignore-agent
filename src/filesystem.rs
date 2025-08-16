@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha512};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -8,43 +7,27 @@ pub fn build_path(base_path: &String, next_item: &String) -> PathBuf {
     Path::new(base_path).join(next_item)
 }
 
-pub fn generate_id(name: &str, parent_id: Option<&str>) -> String {
-    let mut hasher = Sha512::new();
-
-    if let Some(id) = parent_id {
-        hasher.update(id);
-    }
-
-    hasher.update(name);
-
-    format!("{:x}", hasher.finalize())
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct ItemGroup {
-    pub id: String,
     pub name: String,
     pub size_kb: u64,
     pub items: Vec<ItemGroup>,
     pub leaf: bool,
 }
 
-fn dir_to_item(entry: fs::DirEntry, parent_id: Option<&str>) -> ItemGroup {
+fn dir_to_item(entry: fs::DirEntry) -> ItemGroup {
     let filename = entry.file_name().into_string().unwrap();
     let entry_path = entry.path();
 
-    let item_id = generate_id(&filename, parent_id);
-
-    let mut children = build_items(&entry_path, Some(&item_id), false);
+    let mut children = build_items(&entry_path, false);
     let mut leaf = false;
 
     if children.is_empty() {
-        children = build_items(&entry_path, Some(&item_id), true);
+        children = build_items(&entry_path, true);
         leaf = true;
     }
 
     ItemGroup {
-        id: item_id.clone(),
         name: filename,
         size_kb: children.iter().map(|c| c.size_kb).sum(),
         items: children,
@@ -52,11 +35,10 @@ fn dir_to_item(entry: fs::DirEntry, parent_id: Option<&str>) -> ItemGroup {
     }
 }
 
-fn file_to_item(entry: fs::DirEntry, parent_id: Option<&str>) -> ItemGroup {
+fn file_to_item(entry: fs::DirEntry) -> ItemGroup {
     let filename = entry.file_name().into_string().unwrap();
 
     ItemGroup {
-        id: generate_id(&filename, parent_id),
         name: filename,
         size_kb: entry.metadata().unwrap().len() / 1024,
         items: vec![],
@@ -64,14 +46,14 @@ fn file_to_item(entry: fs::DirEntry, parent_id: Option<&str>) -> ItemGroup {
     }
 }
 
-pub fn build_items(item_path: &Path, parent_id: Option<&str>, leaf: bool) -> Vec<ItemGroup> {
+pub fn build_items(item_path: &Path, leaf: bool) -> Vec<ItemGroup> {
     tracing::info!("build_items with {:?} (leaf: {})", item_path, leaf);
     match fs::read_dir(item_path) {
         Ok(paths) => match leaf {
-            true => paths.map(|i| file_to_item(i.unwrap(), parent_id)).collect(),
+            true => paths.map(|i| file_to_item(i.unwrap())).collect(),
             false => paths
                 .filter(|i| i.as_ref().unwrap().file_type().unwrap().is_dir())
-                .map(|i| dir_to_item(i.unwrap(), parent_id))
+                .map(|i| dir_to_item(i.unwrap()))
                 .collect(),
         },
         Err(why) => {
@@ -81,24 +63,24 @@ pub fn build_items(item_path: &Path, parent_id: Option<&str>, leaf: bool) -> Vec
     }
 }
 
-pub fn get_item(start: &Path, path: &[&str], parent_id: Option<&str>) -> Option<ItemGroup> {
+pub fn get_item(start: &Path, path: &[&str]) -> Option<ItemGroup> {
     if path.is_empty() {
         return None;
     }
 
-    let item_id = path[0];
-    let children = build_items(start, parent_id, false);
+    let item_name = path[0];
+    let children = build_items(start, false);
     let found = children
         .iter()
-        .find(|child| child.id == item_id)
+        .find(|child| child.name == item_name)
         .map(|c| c.to_owned());
 
     match path.len() {
         1 => found,
         _ => match found {
             Some(child) => {
-                let start_here = start.join(child.name);
-                get_item(start_here.as_path(), &path[1..], Some(item_id))
+                let start_here = start.join(&child.name);
+                get_item(start_here.as_path(), &path[1..])
             }
             None => None,
         },
@@ -230,29 +212,39 @@ pub fn add_to_stignore(
 ///
 /// # Parameters
 /// * `category_base_path` - The base directory of the category (e.g., "/home/user/media/movies")
-/// * `folder_path` - The folder path to delete (as a vector of path components)
+/// * `folder_path` - The folder path to delete (as a string like "/Movie Name (2023)")
 /// * `category_name` - Name of the category for success messages
 ///
 /// # Returns
 /// * `DeleteResult` - Success, not found, or error result
 pub fn delete_from_filesystem(
     category_base_path: &std::path::Path,
-    folder_path: &[String],
+    folder_path: &str,
     category_name: &str,
 ) -> DeleteResult {
-    // Build the complete path to delete
+    // Parse the folder path string and build the complete path to delete
+    let path_components: Vec<&str> = folder_path
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
+
     let mut full_path = category_base_path.to_path_buf();
-    for component in folder_path {
+    for component in &path_components {
         full_path = full_path.join(component);
     }
 
-    // Convert to display string for messages
-    let folder_path_str = format!("/{}", folder_path.join("/"));
+    // Normalize folder path for messages
+    let normalized_folder_path = if folder_path.starts_with('/') {
+        folder_path.to_string()
+    } else {
+        format!("/{}", folder_path)
+    };
 
     // Check if the path exists
     if !full_path.exists() {
         return DeleteResult::NotFound {
-            requested_path: folder_path_str,
+            requested_path: normalized_folder_path,
         };
     }
 
@@ -265,14 +257,14 @@ pub fn delete_from_filesystem(
 
     match result {
         Ok(_) => DeleteResult::Success {
-            deleted_path: folder_path_str.clone(),
+            deleted_path: normalized_folder_path.clone(),
             message: format!(
                 "Successfully deleted '{}' from category '{}'",
-                folder_path_str, category_name
+                normalized_folder_path, category_name
             ),
         },
         Err(err) => DeleteResult::Error {
-            message: format!("Failed to delete '{}': {}", folder_path_str, err),
+            message: format!("Failed to delete '{}': {}", normalized_folder_path, err),
         },
     }
 }

@@ -21,14 +21,11 @@ pub async fn category_list(State(data): State<config::Data>) -> impl IntoRespons
         .categories
         .iter()
         .map(|c| {
-            let parent_id = filesystem::generate_id(&c.id, None);
-
             let category_path = filesystem::build_path(&data.agent.base_path, &c.relative_path);
-            let children = filesystem::build_items(&category_path, Some(&parent_id), false);
+            let children = filesystem::build_items(&category_path, false);
 
             filesystem::ItemGroup {
-                id: parent_id,
-                name: c.name.clone(),
+                name: c.id.clone(),
                 size_kb: children.iter().map(|c| c.size_kb).sum(),
                 items: children,
                 leaf: false,
@@ -50,13 +47,11 @@ pub async fn category_info(
             let category_path =
                 filesystem::build_path(&data.agent.base_path, &category.relative_path);
 
-            let parent_id = filesystem::generate_id(&category.id, None);
-
             (
                 StatusCode::OK,
                 Json(CategoryInfoResponse {
                     name: category.name.clone(),
-                    items: filesystem::build_items(&category_path, Some(&parent_id), false),
+                    items: filesystem::build_items(&category_path, false),
                 }),
             )
                 .into_response()
@@ -71,79 +66,63 @@ pub async fn category_info(
     }
 }
 
-// GET itemgroup info
-// Returns specific info for a given itemgroup
-// We must be given a series of correct itemgroup IDs to traverse
-pub async fn get_item_info(State(data): State<config::Data>, Path(path): Path<String>) -> Response {
-    let start = std::path::Path::new(&data.agent.base_path);
-    let item_path: Vec<&str> = path.split('/').collect();
-    tracing::info!("Finding {:?}", &item_path);
-
-    // Validate that the first item in the path corresponds to a valid category
-    if !item_path.is_empty() {
-        let category_hash_id = &item_path[0];
-
-        // Find the category by matching the generated hash ID
-        let category_exists = data.categories.iter().any(|c| {
-            let generated_id = filesystem::generate_id(&c.id, None);
-            generated_id == *category_hash_id
-        });
-
-        if !category_exists {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(NotFoundResponse {
-                    message: format!("Category with hash ID '{}' not found", category_hash_id),
-                }),
-            )
-                .into_response();
-        }
-    }
-
-    match filesystem::get_item(start, &item_path, None) {
-        Some(item) => (StatusCode::OK, Json(ItemInfoResponse { item })).into_response(),
-        None => (
-            StatusCode::NOT_FOUND,
-            Json(NotFoundResponse {
-                message: format!("Item Path '{:?}' not found", &item_path),
-            }),
-        )
-            .into_response(),
-    }
-}
-
 // POST itemgroup info
 // Returns specific info for a given itemgroup
-// We must be given a series of correct itemgroup IDs to traverse
+// We must be given a series of correct itemgroup names to traverse
 pub async fn post_item_info(
     State(data): State<config::Data>,
     Json(payload): Json<ItemInfoRequest>,
 ) -> Response {
-    let start = std::path::Path::new(&data.agent.base_path);
     let item_path: Vec<&str> = payload.item_path.iter().map(AsRef::as_ref).collect();
 
     // Validate that the first item in the path corresponds to a valid category
-    if !item_path.is_empty() {
-        let category_hash_id = &item_path[0];
+    if item_path.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(NotFoundResponse {
+                message: "Item path cannot be empty".to_string(),
+            }),
+        )
+            .into_response();
+    }
 
-        // Find the category by matching the generated hash ID
-        let category_exists = data.categories.iter().any(|c| {
-            let generated_id = filesystem::generate_id(&c.id, None);
-            generated_id == *category_hash_id
-        });
-
-        if !category_exists {
+    let category_id = &item_path[0];
+    let category = match data.categories.iter().find(|c| c.id == *category_id) {
+        Some(cat) => cat,
+        None => {
             return (
                 StatusCode::NOT_FOUND,
                 Json(NotFoundResponse {
-                    message: format!("Category with hash ID '{}' not found", category_hash_id),
+                    message: format!("Category ID '{}' not found", category_id),
                 }),
             )
                 .into_response();
         }
+    };
+
+    let category_path = filesystem::build_path(&data.agent.base_path, &category.relative_path);
+
+    if item_path.len() == 1 {
+        // Return the category itself
+        let items = filesystem::build_items(&category_path, false);
+        let category_item = filesystem::ItemGroup {
+            name: category.id.clone(),
+            size_kb: items.iter().map(|c| c.size_kb).sum(),
+            items,
+            leaf: false,
+        };
+        return (
+            StatusCode::OK,
+            Json(ItemInfoResponse {
+                item: category_item,
+            }),
+        )
+            .into_response();
     }
 
-    match filesystem::get_item(start, item_path.as_slice(), None) {
+    // Navigate to the specific item within the category
+    let item_path_within_category = &item_path[1..];
+    match filesystem::get_item(&category_path, item_path_within_category) {
         Some(item) => (StatusCode::OK, Json(ItemInfoResponse { item })).into_response(),
         None => (
             StatusCode::NOT_FOUND,
@@ -180,18 +159,15 @@ pub async fn post_ignore(
             .into_response();
     }
 
-    // Find the category by matching the hashed category ID
-    let category = match data.categories.iter().find(|c| {
-        let generated_id = filesystem::generate_id(&c.id, None);
-        generated_id == payload.category_id
-    }) {
+    // Find the category by matching the category ID
+    let category = match data.categories.iter().find(|c| c.id == payload.category_id) {
         Some(cat) => cat,
         None => {
             return (
                 StatusCode::BAD_REQUEST,
                 Json(IgnoreResponse {
                     success: false,
-                    message: format!("Category with hash ID '{}' not found", payload.category_id),
+                    message: format!("Category ID '{}' not found", payload.category_id),
                     ignored_path: None,
                 }),
             )
@@ -204,12 +180,6 @@ pub async fn post_ignore(
 
     // Build the folder path string for .stignore (always use forward slashes)
     let folder_path_str = format!("/{}", payload.folder_path.join("/"));
-
-    // For validation, construct the actual filesystem path
-    let mut file_path = category_base_path.clone();
-    for folder in &payload.folder_path {
-        file_path = file_path.join(folder);
-    }
 
     // Add to .stignore using the folder path string directly
     match filesystem::add_to_stignore(&category_base_path, &folder_path_str, &category.name) {
@@ -261,11 +231,8 @@ pub async fn post_ignore_status(
             .into_response();
     }
 
-    // Find the category by matching the hashed category ID
-    let category = match data.categories.iter().find(|c| {
-        let generated_id = filesystem::generate_id(&c.id, None);
-        generated_id == payload.category_id
-    }) {
+    // Find the category by matching the category ID
+    let category = match data.categories.iter().find(|c| c.id == payload.category_id) {
         Some(cat) => cat,
         None => {
             return (
@@ -301,11 +268,8 @@ pub async fn post_ignore_status_bulk(
         let ignored = if item.folder_path.is_empty() {
             false
         } else {
-            // Find the category by matching the hashed category ID
-            match data.categories.iter().find(|c| {
-                let generated_id = filesystem::generate_id(&c.id, None);
-                generated_id == item.category_id
-            }) {
+            // Find the category by matching the category ID
+            match data.categories.iter().find(|c| c.id == item.category_id) {
                 Some(category) => {
                     let category_base_path =
                         std::path::Path::new(&data.agent.base_path).join(&category.relative_path);
@@ -359,18 +323,15 @@ pub async fn post_delete(
             .into_response();
     }
 
-    // Find the category by matching the hashed category ID
-    let category = match data.categories.iter().find(|c| {
-        let generated_id = filesystem::generate_id(&c.id, None);
-        generated_id == payload.category_id
-    }) {
+    // Find the category by matching the category ID
+    let category = match data.categories.iter().find(|c| c.id == payload.category_id) {
         Some(cat) => cat,
         None => {
             return (
                 StatusCode::BAD_REQUEST,
                 Json(DeleteResponse {
                     success: false,
-                    message: format!("Category with hash ID '{}' not found", payload.category_id),
+                    message: format!("Category ID '{}' not found", payload.category_id),
                     deleted_path: None,
                 }),
             )
@@ -381,12 +342,12 @@ pub async fn post_delete(
     let category_base_path =
         std::path::Path::new(&data.agent.base_path).join(&category.relative_path);
 
+    // Build the folder path string for deletion
+    let folder_path_str = format!("/{}", payload.folder_path.join("/"));
+
     // Delete from filesystem
-    match filesystem::delete_from_filesystem(
-        &category_base_path,
-        &payload.folder_path,
-        &category.name,
-    ) {
+    match filesystem::delete_from_filesystem(&category_base_path, &folder_path_str, &category.name)
+    {
         filesystem::DeleteResult::Success {
             deleted_path,
             message,
@@ -431,7 +392,7 @@ mod tests {
     use tempfile::TempDir;
 
     // Test constants
-    const MOVIES_ID: &str = "db15c6cdb24182a5027ee83634f7226e90f5e2b3593baa0672c93d89cb21e4f383f575bbb41e35fd76d3cd424275b7b0831d1437503fe1ab78229131a4183d30";
+    const MOVIES_ID: &str = "movies";
     const NONEXISTENT_ID: &str = "nonexistent_id";
 
     struct TestDirectoryPaths {
@@ -570,7 +531,6 @@ mod tests {
             .route("/", axum::routing::get(help))
             .route("/api/v1/categories", axum::routing::get(category_list))
             .route("/api/v1/categories/{id}", axum::routing::get(category_info))
-            .route("/api/v1/items/{*path}", axum::routing::get(get_item_info))
             .route("/api/v1/items", axum::routing::post(post_item_info))
             .route("/api/v1/ignore", axum::routing::post(post_ignore))
             .route(
@@ -613,8 +573,8 @@ mod tests {
 
         let json: CategoryListingResponse = response.json();
         assert_eq!(json.items.len(), 2);
-        assert!(json.items.iter().any(|item| item.name == "Movies"));
-        assert!(json.items.iter().any(|item| item.name == "TV Shows"));
+        assert!(json.items.iter().any(|item| item.name == "movies"));
+        assert!(json.items.iter().any(|item| item.name == "tv"));
     }
 
     #[tokio::test]
@@ -638,50 +598,6 @@ mod tests {
 
         let json: NotFoundResponse = response.json();
         assert!(json.message.contains("Category ID nonexistent not found"));
-    }
-
-    // Item endpoint tests (GET)
-    #[tokio::test]
-    async fn test_get_item_info_success() {
-        let (server, _temp_dir) = setup_test_server().await;
-
-        let response = server.get(&format!("/api/v1/items/{}", MOVIES_ID)).await;
-        response.assert_status(StatusCode::OK);
-
-        let json: ItemInfoResponse = response.json();
-        assert_eq!(json.item.name, "movies");
-        assert_eq!(json.item.items.len(), 2);
-    }
-
-    #[tokio::test]
-    async fn test_get_item_info_not_found() {
-        let (server, _temp_dir) = setup_test_server().await;
-
-        let response = server
-            .get(&format!("/api/v1/items/{}", NONEXISTENT_ID))
-            .await;
-        response.assert_status(StatusCode::NOT_FOUND);
-
-        let json: NotFoundResponse = response.json();
-        assert!(json.message.contains("Category with hash ID"));
-    }
-
-    #[tokio::test]
-    async fn test_get_item_info_invalid_category() {
-        let (server, _temp_dir) = setup_test_server().await;
-
-        // Use a hash that doesn't correspond to any configured category
-        let invalid_category_id = "invalid_category_hash";
-        let response = server
-            .get(&format!("/api/v1/items/{}", invalid_category_id))
-            .await;
-        response.assert_status(StatusCode::NOT_FOUND);
-
-        let json: NotFoundResponse = response.json();
-        assert!(
-            json.message
-                .contains("Category with hash ID 'invalid_category_hash' not found")
-        );
     }
 
     // Item endpoint tests (POST)
@@ -713,7 +629,7 @@ mod tests {
         response.assert_status(StatusCode::NOT_FOUND);
 
         let json: NotFoundResponse = response.json();
-        assert!(json.message.contains("Category with hash ID"));
+        assert!(json.message.contains("Category ID"));
     }
 
     #[tokio::test]
@@ -721,7 +637,7 @@ mod tests {
         let (server, _temp_dir) = setup_test_server().await;
 
         let request_body = ItemInfoRequest {
-            item_path: vec!["invalid_category_hash".to_string()],
+            item_path: vec!["invalid_category".to_string()],
         };
 
         let response = server.post("/api/v1/items").json(&request_body).await;
@@ -730,7 +646,7 @@ mod tests {
         let json: NotFoundResponse = response.json();
         assert!(
             json.message
-                .contains("Category with hash ID 'invalid_category_hash' not found")
+                .contains("Category ID 'invalid_category' not found")
         );
     }
 
@@ -805,7 +721,7 @@ mod tests {
         let (server, _temp_dir) = setup_test_server().await;
 
         let request_body = IgnoreRequest {
-            category_id: "nonexistent_hash_id".to_string(),
+            category_id: NONEXISTENT_ID.to_string(),
             folder_path: vec!["Some Movie".to_string()],
         };
 
@@ -816,7 +732,7 @@ mod tests {
         assert!(!json.success);
         assert!(
             json.message
-                .contains("Category with hash ID 'nonexistent_hash_id' not found")
+                .contains("Category ID 'nonexistent_id' not found")
         );
     }
 
@@ -913,7 +829,7 @@ mod tests {
         let (server, _temp_dir) = setup_test_server().await;
 
         let request_body = IgnoreStatusRequest {
-            category_id: "nonexistent_hash_id".to_string(),
+            category_id: NONEXISTENT_ID.to_string(),
             folder_path: vec!["Some Movie".to_string()],
         };
 
@@ -1084,7 +1000,7 @@ mod tests {
         let (server, _temp_dir) = setup_test_server().await;
 
         let request_body = DeleteRequest {
-            category_id: "nonexistent_hash_id".to_string(),
+            category_id: NONEXISTENT_ID.to_string(),
             folder_path: vec!["Some Movie".to_string()],
         };
 
@@ -1095,7 +1011,7 @@ mod tests {
         assert!(!json.success);
         assert!(
             json.message
-                .contains("Category with hash ID 'nonexistent_hash_id' not found")
+                .contains("Category ID 'nonexistent_id' not found")
         );
         assert!(json.deleted_path.is_none());
     }

@@ -24,7 +24,6 @@ async fn main() {
         .route("/", get(tasks::help))
         .route("/api/v1/categories", get(tasks::category_list))
         .route("/api/v1/categories/{id}", get(tasks::category_info))
-        .route("/api/v1/items/{*path}", get(tasks::get_item_info))
         .route("/api/v1/items", post(tasks::post_item_info))
         .route("/api/v1/ignore", post(tasks::post_ignore))
         .route("/api/v1/ignore-status", post(tasks::post_ignore_status))
