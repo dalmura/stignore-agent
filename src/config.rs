@@ -14,6 +14,7 @@ pub struct AgentConfig {
     pub name: String,
     pub port: u16,
     pub base_path: String,
+    pub api_key: String,
 }
 
 // Parent struct holding the entire config file
@@ -56,6 +57,7 @@ mod tests {
            port = 3000
            name = "Agent Smith"
            base_path = "/path/to/stuff"
+           api_key = "550e8400-e29b-41d4-a716-446655440000"
         
            [[categories]]
            id = "category_a"

@@ -2,6 +2,7 @@
 port = 3000
 name = "Agent Smith"
 base_path = "C:\\media"
+api_key = "550e8400-e29b-41d4-a716-446655440000"
 
 [[categories]]
 id = "movies"

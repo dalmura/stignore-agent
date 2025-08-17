@@ -510,6 +510,7 @@ mod tests {
                 name: "Test Agent".to_string(),
                 port: 3000,
                 base_path,
+                api_key: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             },
             categories: vec![
                 Category {
@@ -544,6 +545,10 @@ mod tests {
                 axum::routing::post(post_ignore_status_bulk),
             )
             .route("/api/v1/delete", axum::routing::post(post_delete))
+            .layer(axum::middleware::from_fn_with_state(
+                data.clone(),
+                crate::auth_middleware,
+            ))
             .with_state(data)
     }
 
@@ -565,12 +570,31 @@ mod tests {
         assert!(text.contains("documentation"));
     }
 
+    #[tokio::test]
+    async fn test_unauthorized_access() {
+        let (server, _temp_dir) = setup_test_server().await;
+
+        // Test without API key
+        let response = server.get("/api/v1/categories").await;
+        response.assert_status(StatusCode::UNAUTHORIZED);
+
+        // Test with wrong API key
+        let response = server
+            .get("/api/v1/categories")
+            .add_header("X-API-Key", "wrong-key")
+            .await;
+        response.assert_status(StatusCode::UNAUTHORIZED);
+    }
+
     // Category endpoint tests
     #[tokio::test]
     async fn test_category_list() {
         let (server, _temp_dir) = setup_test_server().await;
 
-        let response = server.get("/api/v1/categories").await;
+        let response = server
+            .get("/api/v1/categories")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
+            .await;
         response.assert_status(StatusCode::OK);
 
         let json: CategoryListingResponse = response.json();
@@ -589,7 +613,10 @@ mod tests {
     async fn test_category_info_found() {
         let (server, _temp_dir) = setup_test_server().await;
 
-        let response = server.get("/api/v1/categories/movies").await;
+        let response = server
+            .get("/api/v1/categories/movies")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
+            .await;
         response.assert_status(StatusCode::OK);
 
         let json: CategoryInfoResponse = response.json();
@@ -601,7 +628,10 @@ mod tests {
     async fn test_category_info_not_found() {
         let (server, _temp_dir) = setup_test_server().await;
 
-        let response = server.get("/api/v1/categories/nonexistent").await;
+        let response = server
+            .get("/api/v1/categories/nonexistent")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
+            .await;
         response.assert_status(StatusCode::NOT_FOUND);
 
         let json: NotFoundResponse = response.json();
@@ -617,7 +647,11 @@ mod tests {
             item_path: vec![MOVIES_ID.to_string()],
         };
 
-        let response = server.post("/api/v1/items").json(&request_body).await;
+        let response = server
+            .post("/api/v1/items")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
+            .json(&request_body)
+            .await;
         response.assert_status(StatusCode::OK);
 
         let json: ItemInfoResponse = response.json();
@@ -634,7 +668,11 @@ mod tests {
             item_path: vec![NONEXISTENT_ID.to_string()],
         };
 
-        let response = server.post("/api/v1/items").json(&request_body).await;
+        let response = server
+            .post("/api/v1/items")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
+            .json(&request_body)
+            .await;
         response.assert_status(StatusCode::NOT_FOUND);
 
         let json: NotFoundResponse = response.json();
@@ -649,7 +687,11 @@ mod tests {
             item_path: vec!["invalid_category".to_string()],
         };
 
-        let response = server.post("/api/v1/items").json(&request_body).await;
+        let response = server
+            .post("/api/v1/items")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
+            .json(&request_body)
+            .await;
         response.assert_status(StatusCode::NOT_FOUND);
 
         let json: NotFoundResponse = response.json();
@@ -671,7 +713,11 @@ mod tests {
             folder_path: vec!["Movie 1 (2023)".to_string()],
         };
 
-        let response = server.post("/api/v1/ignore").json(&request_body).await;
+        let response = server
+            .post("/api/v1/ignore")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
+            .json(&request_body)
+            .await;
         response.assert_status(StatusCode::OK);
 
         let json: IgnoreResponse = response.json();
@@ -699,7 +745,11 @@ mod tests {
             folder_path: vec!["Movie 1 (2023)".to_string()],
         };
 
-        let response = server.post("/api/v1/ignore").json(&request_body).await;
+        let response = server
+            .post("/api/v1/ignore")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
+            .json(&request_body)
+            .await;
         response.assert_status(StatusCode::OK);
 
         let json: IgnoreResponse = response.json();
@@ -717,7 +767,11 @@ mod tests {
             folder_path: vec![],
         };
 
-        let response = server.post("/api/v1/ignore").json(&request_body).await;
+        let response = server
+            .post("/api/v1/ignore")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
+            .json(&request_body)
+            .await;
         response.assert_status(StatusCode::BAD_REQUEST);
 
         let json: IgnoreResponse = response.json();
@@ -734,7 +788,11 @@ mod tests {
             folder_path: vec!["Some Movie".to_string()],
         };
 
-        let response = server.post("/api/v1/ignore").json(&request_body).await;
+        let response = server
+            .post("/api/v1/ignore")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
+            .json(&request_body)
+            .await;
         response.assert_status(StatusCode::BAD_REQUEST);
 
         let json: IgnoreResponse = response.json();
@@ -755,7 +813,11 @@ mod tests {
             folder_path: vec!["Non-existent Movie (2025)".to_string()],
         };
 
-        let response = server.post("/api/v1/ignore").json(&request_body).await;
+        let response = server
+            .post("/api/v1/ignore")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
+            .json(&request_body)
+            .await;
         response.assert_status(StatusCode::OK);
 
         let json: IgnoreResponse = response.json();
@@ -783,6 +845,7 @@ mod tests {
 
         let response = server
             .post("/api/v1/ignore-status")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
             .json(&request_body)
             .await;
         response.assert_status(StatusCode::OK);
@@ -806,6 +869,7 @@ mod tests {
 
         let response = server
             .post("/api/v1/ignore-status")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
             .json(&request_body)
             .await;
         response.assert_status(StatusCode::OK);
@@ -825,6 +889,7 @@ mod tests {
 
         let response = server
             .post("/api/v1/ignore-status")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
             .json(&request_body)
             .await;
         response.assert_status(StatusCode::BAD_REQUEST);
@@ -844,6 +909,7 @@ mod tests {
 
         let response = server
             .post("/api/v1/ignore-status")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
             .json(&request_body)
             .await;
         response.assert_status(StatusCode::BAD_REQUEST);
@@ -867,6 +933,7 @@ mod tests {
 
         let response = server
             .post("/api/v1/ignore-status")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
             .json(&request_body)
             .await;
         response.assert_status(StatusCode::OK);
@@ -887,6 +954,7 @@ mod tests {
 
         let response = server
             .post("/api/v1/ignore-status")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
             .json(&request_body)
             .await;
         response.assert_status(StatusCode::OK);
@@ -923,6 +991,7 @@ mod tests {
 
         let response = server
             .post("/api/v1/ignore-status-bulk")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
             .json(&request_body)
             .await;
         response.assert_status(StatusCode::OK);
@@ -958,7 +1027,11 @@ mod tests {
             folder_path: vec!["Movie 1 (2023)".to_string()],
         };
 
-        let response = server.post("/api/v1/delete").json(&request_body).await;
+        let response = server
+            .post("/api/v1/delete")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
+            .json(&request_body)
+            .await;
         response.assert_status(StatusCode::OK);
 
         let json: DeleteResponse = response.json();
@@ -977,7 +1050,11 @@ mod tests {
             folder_path: vec!["Non-existent Movie (2025)".to_string()],
         };
 
-        let response = server.post("/api/v1/delete").json(&request_body).await;
+        let response = server
+            .post("/api/v1/delete")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
+            .json(&request_body)
+            .await;
         response.assert_status(StatusCode::NOT_FOUND);
 
         let json: DeleteResponse = response.json();
@@ -995,7 +1072,11 @@ mod tests {
             folder_path: vec![],
         };
 
-        let response = server.post("/api/v1/delete").json(&request_body).await;
+        let response = server
+            .post("/api/v1/delete")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
+            .json(&request_body)
+            .await;
         response.assert_status(StatusCode::BAD_REQUEST);
 
         let json: DeleteResponse = response.json();
@@ -1013,7 +1094,11 @@ mod tests {
             folder_path: vec!["Some Movie".to_string()],
         };
 
-        let response = server.post("/api/v1/delete").json(&request_body).await;
+        let response = server
+            .post("/api/v1/delete")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
+            .json(&request_body)
+            .await;
         response.assert_status(StatusCode::BAD_REQUEST);
 
         let json: DeleteResponse = response.json();
@@ -1038,7 +1123,11 @@ mod tests {
             folder_path: vec!["test-file.txt".to_string()],
         };
 
-        let response = server.post("/api/v1/delete").json(&request_body).await;
+        let response = server
+            .post("/api/v1/delete")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
+            .json(&request_body)
+            .await;
         response.assert_status(StatusCode::OK);
 
         let json: DeleteResponse = response.json();

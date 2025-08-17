@@ -3,10 +3,44 @@ mod filesystem;
 mod models;
 mod tasks;
 
-use axum::{Router, routing::get, routing::post};
+use axum::{
+    Router,
+    body::Body,
+    extract::State,
+    http::{Request, StatusCode},
+    middleware,
+    response::Response,
+    routing::get,
+    routing::post,
+};
 use tracing_subscriber::fmt;
 
 use std::env;
+
+async fn auth_middleware(
+    State(data): State<config::Data>,
+    request: Request<Body>,
+    next: middleware::Next,
+) -> Result<Response, StatusCode> {
+    // Skip auth for help endpoint
+    if request.uri().path() == "/" {
+        return Ok(next.run(request).await);
+    }
+
+    // Check for X-API-Key header
+    let auth_header = request
+        .headers()
+        .get("X-API-Key")
+        .and_then(|header| header.to_str().ok());
+
+    match auth_header {
+        Some(provided_key) if provided_key == data.agent.api_key => Ok(next.run(request).await),
+        _ => {
+            tracing::warn!("Unauthorized access attempt to {}", request.uri().path());
+            Err(StatusCode::UNAUTHORIZED)
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() {
@@ -32,6 +66,10 @@ async fn main() {
             post(tasks::post_ignore_status_bulk),
         )
         .route("/api/v1/delete", post(tasks::post_delete))
+        .layer(middleware::from_fn_with_state(
+            data.clone(),
+            auth_middleware,
+        ))
         .with_state(data.clone());
 
     /* bind to the port and listen */
