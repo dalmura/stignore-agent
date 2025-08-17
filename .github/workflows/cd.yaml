@@ -20,7 +20,7 @@ jobs:
 
       - id: tag_check
         run: |
-          [[ $(git tag | grep "v${{ steps.version.outputs.value }}") == '' ]]
+          [[ $(git tag | grep "v${{ steps.version.outputs.value }}") != '' ]]
 
       # Only create a release when the above version isn't already tagged
       # aka a new release
