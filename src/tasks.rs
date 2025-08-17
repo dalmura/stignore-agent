@@ -7,6 +7,15 @@ use axum::{
     http::StatusCode,
     response::{Html, IntoResponse, Response},
 };
+use std::path::PathBuf;
+
+/// Helper function to build the category base path
+fn build_category_base_path(
+    agent_config: &config::AgentConfig,
+    category: &config::Category,
+) -> PathBuf {
+    std::path::Path::new(&agent_config.base_path).join(&category.relative_path)
+}
 
 pub async fn help() -> Html<&'static str> {
     Html(
@@ -21,7 +30,7 @@ pub async fn category_list(State(data): State<config::Data>) -> impl IntoRespons
         .categories
         .iter()
         .map(|c| {
-            let category_path = filesystem::build_path(&data.agent.base_path, &c.relative_path);
+            let category_path = build_category_base_path(&data.agent, c);
             let children = filesystem::build_items(&category_path, false);
 
             filesystem::ItemGroup {
@@ -45,8 +54,7 @@ pub async fn category_info(
 ) -> Response {
     match data.categories.iter().find(|x| x.id == category_id) {
         Some(category) => {
-            let category_path =
-                filesystem::build_path(&data.agent.base_path, &category.relative_path);
+            let category_path = build_category_base_path(&data.agent, category);
 
             (
                 StatusCode::OK,
@@ -101,7 +109,7 @@ pub async fn post_item_info(
         }
     };
 
-    let category_path = filesystem::build_path(&data.agent.base_path, &category.relative_path);
+    let category_path = build_category_base_path(&data.agent, category);
 
     if item_path.len() == 1 {
         // Return the category itself
@@ -177,14 +185,10 @@ pub async fn post_ignore(
         }
     };
 
-    let category_base_path =
-        std::path::Path::new(&data.agent.base_path).join(&category.relative_path);
+    let category_base_path = build_category_base_path(&data.agent, category);
 
-    // Build the folder path string for .stignore (always use forward slashes)
-    let folder_path_str = format!("/{}", payload.folder_path.join("/"));
-
-    // Add to .stignore using the folder path string directly
-    match filesystem::add_to_stignore(&category_base_path, &folder_path_str, &category.name) {
+    // Add to .stignore using the folder path components directly
+    match filesystem::add_to_stignore(&category_base_path, &payload.folder_path, &category.name) {
         filesystem::StignoreResult::Success {
             ignored_path,
             message,
@@ -245,14 +249,10 @@ pub async fn post_ignore_status(
         }
     };
 
-    let category_base_path =
-        std::path::Path::new(&data.agent.base_path).join(&category.relative_path);
-
-    // Build the folder path string for checking (always use forward slashes)
-    let folder_path_str = format!("/{}", payload.folder_path.join("/"));
+    let category_base_path = build_category_base_path(&data.agent, category);
 
     // Check if the folder path is ignored
-    let ignored = filesystem::is_path_ignored(&category_base_path, &folder_path_str);
+    let ignored = filesystem::is_path_ignored(&category_base_path, &payload.folder_path);
 
     (StatusCode::OK, Json(IgnoreStatusResponse { ignored })).into_response()
 }
@@ -273,14 +273,10 @@ pub async fn post_ignore_status_bulk(
             // Find the category by matching the category ID
             match data.categories.iter().find(|c| c.id == item.category_id) {
                 Some(category) => {
-                    let category_base_path =
-                        std::path::Path::new(&data.agent.base_path).join(&category.relative_path);
-
-                    // Build the folder path string for checking (always use forward slashes)
-                    let folder_path_str = format!("/{}", item.folder_path.join("/"));
+                    let category_base_path = build_category_base_path(&data.agent, category);
 
                     // Check if the folder path is ignored
-                    filesystem::is_path_ignored(&category_base_path, &folder_path_str)
+                    filesystem::is_path_ignored(&category_base_path, &item.folder_path)
                 }
                 None => false, // Invalid category
             }
@@ -341,15 +337,14 @@ pub async fn post_delete(
         }
     };
 
-    let category_base_path =
-        std::path::Path::new(&data.agent.base_path).join(&category.relative_path);
-
-    // Build the folder path string for deletion
-    let folder_path_str = format!("/{}", payload.folder_path.join("/"));
+    let category_base_path = build_category_base_path(&data.agent, category);
 
     // Delete from filesystem
-    match filesystem::delete_from_filesystem(&category_base_path, &folder_path_str, &category.name)
-    {
+    match filesystem::delete_from_filesystem(
+        &category_base_path,
+        &payload.folder_path,
+        &category.name,
+    ) {
         filesystem::DeleteResult::Success {
             deleted_path,
             message,

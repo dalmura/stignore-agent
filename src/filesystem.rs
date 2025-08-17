@@ -2,9 +2,24 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/* generic functions */
-pub fn build_path(base_path: &String, next_item: &String) -> PathBuf {
-    Path::new(base_path).join(next_item)
+/* generic functions - keeping for backward compatibility if needed */
+
+/// Helper function to convert folder path components to a full filesystem path
+fn build_full_path(base_path: &Path, folder_path_components: &[String]) -> PathBuf {
+    let mut full_path = base_path.to_path_buf();
+    for component in folder_path_components {
+        full_path = full_path.join(component);
+    }
+    full_path
+}
+
+/// Helper function to convert folder path components to Unix-style string for .stignore
+fn build_unix_path_string(folder_path_components: &[String]) -> String {
+    if folder_path_components.is_empty() {
+        "/".to_string()
+    } else {
+        format!("/{}", folder_path_components.join("/"))
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -17,7 +32,7 @@ pub(crate) struct ItemGroup {
 }
 
 fn dir_to_item(entry: fs::DirEntry) -> ItemGroup {
-    let filename = entry.file_name().into_string().unwrap();
+    let filename = entry.file_name().to_string_lossy().to_string();
     let entry_path = entry.path();
 
     let mut children = build_items(&entry_path, false);
@@ -38,12 +53,12 @@ fn dir_to_item(entry: fs::DirEntry) -> ItemGroup {
 }
 
 fn file_to_item(entry: fs::DirEntry) -> ItemGroup {
-    let filename = entry.file_name().into_string().unwrap();
+    let filename = entry.file_name().to_string_lossy().to_string();
 
     ItemGroup {
         id: filename.clone(),
         name: filename,
-        size_kb: entry.metadata().unwrap().len() / 1024,
+        size_kb: entry.metadata().map(|m| m.len() / 1024).unwrap_or(0),
         items: vec![],
         leaf: false,
     }
@@ -53,10 +68,14 @@ pub fn build_items(item_path: &Path, leaf: bool) -> Vec<ItemGroup> {
     tracing::info!("build_items with {:?} (leaf: {})", item_path, leaf);
     match fs::read_dir(item_path) {
         Ok(paths) => match leaf {
-            true => paths.map(|i| file_to_item(i.unwrap())).collect(),
+            true => paths
+                .filter_map(|entry| entry.ok())
+                .map(file_to_item)
+                .collect(),
             false => paths
-                .filter(|i| i.as_ref().unwrap().file_type().unwrap().is_dir())
-                .map(|i| dir_to_item(i.unwrap()))
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
+                .map(dir_to_item)
                 .collect(),
         },
         Err(why) => {
@@ -121,15 +140,24 @@ pub enum DeleteResult {
 }
 
 /// Checks if a folder path is ignored in the .stignore file.
-/// This function works with folder names directly and supports non-existent folders.
+/// This function works with folder path components and supports non-existent folders.
 ///
 /// # Parameters
 /// * `category_base_path` - The base directory of the category (e.g., "/home/user/media/movies")
-/// * `folder_path` - The folder path string to check (e.g., "/Movie Name (2023)")
+/// * `folder_path_components` - The folder path as components (e.g., ["Movie Name (2023)"])
 ///
 /// # Returns
 /// * `bool` - True if the folder path is ignored, false otherwise
-pub fn is_path_ignored(category_base_path: &std::path::Path, folder_path: &str) -> bool {
+pub fn is_path_ignored(
+    category_base_path: &std::path::Path,
+    folder_path_components: &[String],
+) -> bool {
+    let folder_path_str = build_unix_path_string(folder_path_components);
+    is_path_ignored_str(category_base_path, &folder_path_str)
+}
+
+/// Internal helper that works with path strings
+fn is_path_ignored_str(category_base_path: &std::path::Path, folder_path: &str) -> bool {
     let stignore_path = category_base_path.join(".stignore");
 
     // Normalize the path to ensure consistency
@@ -152,16 +180,26 @@ pub fn is_path_ignored(category_base_path: &std::path::Path, folder_path: &str) 
 }
 
 /// Adds a folder path to the .stignore file in the specified category directory.
-/// This function works with folder names directly and supports non-existent folders.
+/// This function works with folder path components and supports non-existent folders.
 ///
 /// # Parameters
 /// * `category_base_path` - The base directory of the category (e.g., "/home/user/media/movies")
-/// * `folder_path` - The folder path string to ignore (e.g., "/Movie Name (2023)")
+/// * `folder_path_components` - The folder path as components (e.g., ["Movie Name (2023)"])
 /// * `category_name` - Name of the category for success messages
 ///
 /// # Returns
 /// * `StignoreResult` - Success, already ignored, or error result
 pub fn add_to_stignore(
+    category_base_path: &std::path::Path,
+    folder_path_components: &[String],
+    category_name: &str,
+) -> StignoreResult {
+    let folder_path_str = build_unix_path_string(folder_path_components);
+    add_to_stignore_str(category_base_path, &folder_path_str, category_name)
+}
+
+/// Internal helper that works with path strings
+fn add_to_stignore_str(
     category_base_path: &std::path::Path,
     folder_path: &str,
     category_name: &str,
@@ -211,38 +249,22 @@ pub fn add_to_stignore(
 }
 
 /// Deletes a folder path from the filesystem in the specified category directory.
-/// This function actually removes files and directories from disk.
+/// This function works with folder path components.
 ///
 /// # Parameters
 /// * `category_base_path` - The base directory of the category (e.g., "/home/user/media/movies")
-/// * `folder_path` - The folder path to delete (as a string like "/Movie Name (2023)")
+/// * `folder_path_components` - The folder path as components (e.g., ["Movie Name (2023)"])
 /// * `category_name` - Name of the category for success messages
 ///
 /// # Returns
 /// * `DeleteResult` - Success, not found, or error result
 pub fn delete_from_filesystem(
     category_base_path: &std::path::Path,
-    folder_path: &str,
+    folder_path_components: &[String],
     category_name: &str,
 ) -> DeleteResult {
-    // Parse the folder path string and build the complete path to delete
-    let path_components: Vec<&str> = folder_path
-        .trim_start_matches('/')
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    let mut full_path = category_base_path.to_path_buf();
-    for component in &path_components {
-        full_path = full_path.join(component);
-    }
-
-    // Normalize folder path for messages
-    let normalized_folder_path = if folder_path.starts_with('/') {
-        folder_path.to_string()
-    } else {
-        format!("/{}", folder_path)
-    };
+    let full_path = build_full_path(category_base_path, folder_path_components);
+    let normalized_folder_path = build_unix_path_string(folder_path_components);
 
     // Check if the path exists
     if !full_path.exists() {
