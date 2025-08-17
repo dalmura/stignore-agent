@@ -1,4 +1,6 @@
 ---
+name: Audit Packages
+
 on:
   push:
     paths:
