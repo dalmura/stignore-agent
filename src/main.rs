@@ -16,6 +16,7 @@ use axum::{
 use tracing_subscriber::fmt;
 
 use std::env;
+use tokio::signal;
 
 async fn auth_middleware(
     State(data): State<config::Data>,
@@ -39,6 +40,34 @@ async fn auth_middleware(
             tracing::warn!("Unauthorized access attempt to {}", request.uri().path());
             Err(StatusCode::UNAUTHORIZED)
         }
+    }
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            tracing::info!("Received Ctrl+C, shutting down gracefully...");
+        },
+        _ = terminate => {
+            tracing::info!("Received terminate signal, shutting down gracefully...");
+        },
     }
 }
 
@@ -76,7 +105,9 @@ async fn main() {
     let addr = format!("127.0.0.1:{}", data.agent.port);
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     tracing::info!("listening on {}", &addr);
+
     axum::serve(listener, app.into_make_service())
+        .with_graceful_shutdown(shutdown_signal())
         .await
         .unwrap();
 }
