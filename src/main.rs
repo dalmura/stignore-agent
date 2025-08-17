@@ -78,9 +78,19 @@ async fn main() {
 
     /* load config */
     let args: Vec<String> = env::args().collect();
+    if args.len() < 2 {
+        eprintln!("Usage: {} <config_file>", args[0]);
+        std::process::exit(1);
+    }
     let config_filename = &args[1];
 
-    let data = config::load_config(config_filename);
+    let data = match config::load_config(config_filename) {
+        Ok(data) => data,
+        Err(err) => {
+            eprintln!("Failed to load configuration: {}", err);
+            std::process::exit(1);
+        }
+    };
 
     /* configure application routes */
     let app = Router::new()
