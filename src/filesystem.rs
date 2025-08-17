@@ -65,7 +65,6 @@ fn file_to_item(entry: fs::DirEntry) -> ItemGroup {
 }
 
 pub fn build_items(item_path: &Path, leaf: bool) -> Vec<ItemGroup> {
-    tracing::info!("build_items with {:?} (leaf: {})", item_path, leaf);
     match fs::read_dir(item_path) {
         Ok(paths) => match leaf {
             true => paths

@@ -112,7 +112,7 @@ async fn main() {
         .with_state(data.clone());
 
     /* bind to the port and listen */
-    let addr = format!("127.0.0.1:{}", data.agent.port);
+    let addr = format!("0.0.0.0:{}", data.agent.port);
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     tracing::info!("listening on {}", &addr);
 
