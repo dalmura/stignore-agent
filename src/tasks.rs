@@ -409,6 +409,12 @@ mod tests {
         fs::create_dir_all(&movies_dir).unwrap();
         fs::create_dir_all(&tv_dir).unwrap();
 
+        // Create Syncthing system files/folders that should be filtered out
+        fs::write(movies_dir.join(".stfolder"), "").unwrap();
+        fs::write(movies_dir.join(".stignore"), "").unwrap(); // Empty .stignore for other tests
+        fs::create_dir_all(movies_dir.join(".stversions")).unwrap();
+        fs::write(tv_dir.join(".stfolder"), "").unwrap();
+
         // Create Movies structure
         let movie1_dir = movies_dir.join("Movie 1 (2023)");
         let movie2_dir = movies_dir.join("Movie 2 (2024)");
@@ -1133,5 +1139,45 @@ mod tests {
 
         // Verify file was actually deleted
         assert!(!test_file_path.exists());
+    }
+
+    #[tokio::test]
+    async fn test_syncthing_system_files_filtered() {
+        let (server, _temp_dir) = setup_test_server().await;
+
+        // Test that Syncthing system files (.st*) are filtered out from listing
+        let request_body = ItemInfoRequest {
+            item_path: vec![MOVIES_ID.to_string()],
+        };
+
+        let response = server
+            .post("/api/v1/items")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
+            .json(&request_body)
+            .await;
+        response.assert_status(StatusCode::OK);
+
+        let json: ItemInfoResponse = response.json();
+
+        let items = json.item.items;
+
+        // Verify that no Syncthing system files are returned
+        for item in &items {
+            assert!(
+                !item.name.starts_with(".st"),
+                "Syncthing system file '{}' should be filtered out",
+                item.name
+            );
+        }
+
+        // Verify we still get regular movies (Movie 1 and Movie 2)
+        let movie_names: Vec<&String> = items.iter().map(|item| &item.name).collect();
+        assert!(movie_names.contains(&&"Movie 1 (2023)".to_string()));
+        assert!(movie_names.contains(&&"Movie 2 (2024)".to_string()));
+
+        // Verify specific system files are not present
+        assert!(!movie_names.contains(&&".stfolder".to_string()));
+        assert!(!movie_names.contains(&&".stignore".to_string()));
+        assert!(!movie_names.contains(&&".stversions".to_string()));
     }
 }

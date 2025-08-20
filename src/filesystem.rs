@@ -4,6 +4,12 @@ use std::path::{Path, PathBuf};
 
 /* generic functions - keeping for backward compatibility if needed */
 
+/// Checks if a directory entry represents a Syncthing system file or folder
+/// These include .stignore, .stfolder, .stversions, and any other .st* items
+fn is_syncthing_system_item(entry: &fs::DirEntry) -> bool {
+    entry.file_name().to_string_lossy().starts_with(".st")
+}
+
 /// Helper function to convert folder path components to a full filesystem path
 fn build_full_path(base_path: &Path, folder_path_components: &[String]) -> PathBuf {
     let mut full_path = base_path.to_path_buf();
@@ -69,10 +75,12 @@ pub fn build_items(item_path: &Path, leaf: bool) -> Vec<ItemGroup> {
         Ok(paths) => match leaf {
             true => paths
                 .filter_map(|entry| entry.ok())
+                .filter(|entry| !is_syncthing_system_item(entry))
                 .map(file_to_item)
                 .collect(),
             false => paths
                 .filter_map(|entry| entry.ok())
+                .filter(|entry| !is_syncthing_system_item(entry))
                 .filter(|entry| entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
                 .map(dir_to_item)
                 .collect(),
