@@ -611,6 +611,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_category_list_excludes_syncthing_files() {
+        let (server, _temp_dir) = setup_test_server().await;
+
+        let response = server
+            .get("/api/v1/categories")
+            .add_header("X-API-Key", "550e8400-e29b-41d4-a716-446655440000")
+            .await;
+        response.assert_status(StatusCode::OK);
+
+        let json: CategoryListingResponse = response.json();
+
+        // Check movies category items
+        let movies_category = json.items.iter().find(|item| item.id == "movies").unwrap();
+        let movie_names: Vec<&String> = movies_category
+            .items
+            .iter()
+            .map(|item| &item.name)
+            .collect();
+
+        // Verify regular movies are present
+        assert!(movie_names.contains(&&"Movie 1 (2023)".to_string()));
+        assert!(movie_names.contains(&&"Movie 2 (2024)".to_string()));
+
+        // Verify Syncthing system files are excluded
+        assert!(!movie_names.contains(&&".stfolder".to_string()));
+        assert!(!movie_names.contains(&&".stignore".to_string()));
+        assert!(!movie_names.contains(&&".stversions".to_string()));
+
+        // Check TV category items
+        let tv_category = json.items.iter().find(|item| item.id == "tv").unwrap();
+        let tv_names: Vec<&String> = tv_category.items.iter().map(|item| &item.name).collect();
+
+        // Verify regular TV shows are present
+        assert!(tv_names.contains(&&"Show 1 (2021)".to_string()));
+        assert!(tv_names.contains(&&"Show 2 (2022)".to_string()));
+        assert!(tv_names.contains(&&"Show 3 (2023)".to_string()));
+
+        // Verify Syncthing system files are excluded from TV category too
+        assert!(!tv_names.contains(&&".stfolder".to_string()));
+    }
+
+    #[tokio::test]
     async fn test_category_info_found() {
         let (server, _temp_dir) = setup_test_server().await;
 
